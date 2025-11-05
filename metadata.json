@@ -1,0 +1,5 @@
+{
+  "name": "ALPR Event Dashboard",
+  "description": "A data-driven, analytics-style UI for a License Plate Recognition (LPR) system, providing a comprehensive overview of detections with interactive charts and data grids.",
+  "requestFramePermissions": []
+}

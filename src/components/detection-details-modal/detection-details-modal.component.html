@@ -1,0 +1,55 @@
+<div (click)="onClose()" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-fade-in">
+  <div (click)="stopPropagation($event)" class="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-slide-up">
+    <!-- Header -->
+    <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-800 z-10 rounded-t-xl">
+      <h2 class="text-2xl font-bold text-white">
+        Detection: <span class="font-mono text-cyan-400">{{ detection().plate.tag }}</span>
+      </h2>
+      <button (click)="onClose()" class="text-gray-400 hover:text-white transition-colors text-3xl leading-none font-bold">&times;</button>
+    </div>
+    
+    <!-- Content -->
+    <div class="p-6 overflow-y-auto">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+        
+        <!-- Plate Details -->
+        <section class="space-y-3">
+          <h3 class="text-lg font-semibold text-cyan-400 border-b border-cyan-400/20 pb-2">Plate Details</h3>
+          <p><strong class="text-gray-400 w-28 inline-block">Tag:</strong> <span class="font-mono">{{ detection().plate.tag }}</span></p>
+          <p><strong class="text-gray-400 w-28 inline-block">Code:</strong> {{ detection().plate.code }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Region Box:</strong> {{ detection().plate.region.width }}w &times; {{ detection().plate.region.height }}h at ({{ detection().plate.region.x }}, {{ detection().plate.region.y }})</p>
+        </section>
+
+        <!-- Vehicle Details -->
+        <section class="space-y-3">
+          <h3 class="text-lg font-semibold text-cyan-400 border-b border-cyan-400/20 pb-2">Vehicle Details</h3>
+          <p><strong class="text-gray-400 w-28 inline-block">Type:</strong> {{ detection().vehicle.type.name }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Color:</strong> <span class="capitalize">{{ detection().vehicle.color.code }}</span></p>
+          <p><strong class="text-gray-400 w-28 inline-block">Orientation:</strong> {{ detection().vehicle.orientation.name }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Bearing:</strong> {{ detection().vehicle.bearing.toFixed(2) }}&deg;</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Occlusion:</strong> {{ (detection().vehicle.occlusion * 100).toFixed(1) }}%</p>
+        </section>
+
+        <!-- Capture Info -->
+        <section class="space-y-3">
+          <h3 class="text-lg font-semibold text-cyan-400 border-b border-cyan-400/20 pb-2">Capture Info</h3>
+          <p><strong class="text-gray-400 w-28 inline-block">Timestamp:</strong> {{ detection().timestamp | date:'medium' }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Camera Name:</strong> {{ detection().source.name }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Camera ID:</strong> <span class="font-mono text-xs">{{ detection().source.id }}</span></p>
+          <p><strong class="text-gray-400 w-28 inline-block">Location:</strong> {{ detection().location.lat.toFixed(6) }}, {{ detection().location.lon.toFixed(6) }}</p>
+        </section>
+
+        <!-- Metadata -->
+        <section class="space-y-3">
+          <h3 class="text-lg font-semibold text-cyan-400 border-b border-cyan-400/20 pb-2">Metadata</h3>
+          <p><strong class="text-gray-400 w-28 inline-block">Detection ID:</strong> <span class="font-mono text-xs">{{ detection().id }}</span></p>
+          <p><strong class="text-gray-400 w-28 inline-block">Image Res:</strong> {{ detection().image.width }} &times; {{ detection().image.height }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Image ID:</strong> <span class="font-mono text-xs">{{ detection().image.id }}</span></p>
+          <p><strong class="text-gray-400 w-28 inline-block">Type:</strong> {{ detection().type }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Version:</strong> {{ detection().version }}</p>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>

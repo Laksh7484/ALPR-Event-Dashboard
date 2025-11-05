@@ -1,0 +1,50 @@
+<section class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+  <h2 class="text-xl font-semibold text-white mb-4">Vehicle Color Distribution</h2>
+  
+  @if (chartData().length > 0) {
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+      <!-- Doughnut Chart -->
+      <div class="relative w-48 h-48 mx-auto">
+        <svg class="w-full h-full" viewBox="0 0 100 100">
+          <circle class="stroke-current text-gray-700" cx="50" cy="50" r="40" fill="transparent" stroke-width="12"></circle>
+          @for (item of chartData(); track item.name) {
+            <circle 
+              cx="50" cy="50" r="40" 
+              fill="transparent" 
+              [attr.stroke]="item.color"
+              stroke-width="12"
+              [style.stroke-dasharray]="circumference"
+              [style.stroke-dashoffset]="circumference - (item.percentage / 100 * circumference)"
+              [style.transform]="'rotate(' + (item.offset / 100 * 360 - 90) + 'deg)'"
+              style="transform-origin: 50% 50%; transition: stroke-dashoffset 0.5s ease-out;">
+            </circle>
+          }
+        </svg>
+        <div class="absolute inset-0 flex flex-col items-center justify-center">
+          <span class="text-4xl font-bold text-white">{{ chartData().length }}</span>
+          <span class="text-sm text-gray-400">Colors</span>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="space-y-3">
+        @for(item of chartData(); track item.name) {
+          <div class="flex items-center justify-between text-sm">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full border border-white/20" [style.backgroundColor]="item.color"></span>
+              <span class="text-gray-300">{{ item.name }}</span>
+            </div>
+            <div class="font-medium text-white">
+              {{ item.count }} 
+              <span class="text-xs text-gray-400">({{ item.percentage.toFixed(1) }}%)</span>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  } @else {
+    <div class="flex items-center justify-center h-64 text-gray-500">
+      No data available for the selected filters.
+    </div>
+  }
+</section>
