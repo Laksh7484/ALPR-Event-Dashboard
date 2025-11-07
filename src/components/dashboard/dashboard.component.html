@@ -96,7 +96,7 @@
             </thead>
             <tbody>
               @if (filteredDetections().length > 0) {
-                @for(det of filteredDetections(); track det.id) {
+                @for(det of paginatedDetections(); track det.id) {
                   <tr (click)="selectDetection(det)" class="group border-b border-gray-700 hover:bg-gray-700 transition-colors duration-200 cursor-pointer">
                     <td class="px-6 py-4 font-mono font-medium text-white">{{ det.plate.tag }}</td>
                     <td class="px-6 py-4">{{ det.source.name }}</td>
@@ -121,6 +121,23 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Pagination Footer -->
+        @if (totalPages() > 1) {
+          <div class="flex flex-wrap items-center justify-between p-4 border-t border-gray-700 gap-4">
+            <span class="text-sm text-gray-400">
+              {{ paginationSummary() }}
+            </span>
+            <div class="inline-flex items-center -space-x-px">
+              <button (click)="previousPage()" [disabled]="currentPage() === 1" class="px-4 py-2 text-sm font-medium leading-tight text-gray-400 bg-gray-800 border border-gray-600 rounded-l-lg hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                Previous
+              </button>
+              <button (click)="nextPage()" [disabled]="currentPage() === totalPages()" class="px-4 py-2 text-sm font-medium leading-tight text-gray-400 bg-gray-800 border border-gray-600 rounded-r-lg hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                Next
+              </button>
+            </div>
+          </div>
+        }
       </section>
     </div>
 

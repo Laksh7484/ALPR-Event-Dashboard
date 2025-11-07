@@ -18,11 +18,18 @@ export class DashboardComponent {
   kpis = toSignal(this.lprDataService.getKpis(), { initialValue: [] });
   detections = toSignal(this.lprDataService.getDetections(), { initialValue: [] });
   
+  // Filters
   plateTagSearch = signal('');
   selectedCamera = signal('All Cameras');
   dateRangeStart = signal('');
   dateRangeEnd = signal('');
+  
+  // Modal state
   selectedDetection = signal<Detection | null>(null);
+
+  // Pagination state
+  currentPage = signal(1);
+  itemsPerPage = 10;
 
   uniqueCameraNames = computed(() => {
     const names = this.detections().map(d => d.source.name);
@@ -57,6 +64,27 @@ export class DashboardComponent {
     });
   });
 
+  totalPages = computed(() => {
+    return Math.ceil(this.filteredDetections().length / this.itemsPerPage);
+  });
+
+  paginatedDetections = computed(() => {
+    const page = this.currentPage();
+    const start = (page - 1) * this.itemsPerPage;
+    const end = start + this.itemsPerPage;
+    return this.filteredDetections().slice(start, end);
+  });
+  
+  paginationSummary = computed(() => {
+    const total = this.filteredDetections().length;
+    if (total === 0) {
+      return '';
+    }
+    const start = (this.currentPage() - 1) * this.itemsPerPage + 1;
+    const end = Math.min(this.currentPage() * this.itemsPerPage, total);
+    return `Showing ${start} to ${end} of ${total} results`;
+  });
+
   detectionsByCamera = computed(() => {
     const counts = new Map<string, number>();
     for (const det of this.filteredDetections()) {
@@ -81,11 +109,13 @@ export class DashboardComponent {
   onPlateTagChange(event: Event) {
     const input = event.target as HTMLInputElement;
     this.plateTagSearch.set(input.value);
+    this.currentPage.set(1);
   }
 
   onCameraChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.selectedCamera.set(select.value);
+    this.currentPage.set(1);
   }
 
   onDateChange(type: 'start' | 'end', event: Event) {
@@ -95,6 +125,7 @@ export class DashboardComponent {
     } else {
       this.dateRangeEnd.set(input.value);
     }
+    this.currentPage.set(1);
   }
 
   clearFilters(): void {
@@ -102,6 +133,19 @@ export class DashboardComponent {
     this.selectedCamera.set('All Cameras');
     this.dateRangeStart.set('');
     this.dateRangeEnd.set('');
+    this.currentPage.set(1);
+  }
+
+  previousPage(): void {
+    if (this.currentPage() > 1) {
+      this.currentPage.update(page => page - 1);
+    }
+  }
+
+  nextPage(): void {
+    if (this.currentPage() < this.totalPages()) {
+      this.currentPage.update(page => page + 1);
+    }
   }
 
   exportToCsv(): void {
