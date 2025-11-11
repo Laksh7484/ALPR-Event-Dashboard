@@ -19,10 +19,13 @@ export class DashboardComponent {
 
   kpis = toSignal(this.lprDataService.getKpis(), { initialValue: [] });
   
+  // Filters
   plateTagSearch = signal('');
   selectedCamera = signal('All Cameras');
   dateRangeStart = signal('');
   dateRangeEnd = signal('');
+  
+  // Modal state
   selectedDetection = signal<Detection | null>(null);
   loading = signal(false);
   
