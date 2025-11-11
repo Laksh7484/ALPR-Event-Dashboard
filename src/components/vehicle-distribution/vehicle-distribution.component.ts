@@ -42,6 +42,6 @@ export class VehicleDistributionComponent {
     }));
   }
 
-  typeChartData = computed(() => this.calculateChartData(det => det.vehicle.type.name));
-  orientationChartData = computed(() => this.calculateChartData(det => det.vehicle.orientation.name));
+  typeChartData = computed(() => this.calculateChartData(det => det.vehicle?.type?.name || 'Unknown'));
+  orientationChartData = computed(() => this.calculateChartData(det => det.vehicle?.orientation?.name || 'Unknown'));
 }
