@@ -23,17 +23,17 @@
         <!-- Vehicle Details -->
         <section class="space-y-3">
           <h3 class="text-lg font-semibold text-cyan-400 border-b border-cyan-400/20 pb-2">Vehicle Details</h3>
-          <p><strong class="text-gray-400 w-28 inline-block">Type:</strong> {{ detection().vehicle.type.name }}</p>
-          <p><strong class="text-gray-400 w-28 inline-block">Color:</strong> <span class="capitalize">{{ detection().vehicle.color.code }}</span></p>
-          <p><strong class="text-gray-400 w-28 inline-block">Orientation:</strong> {{ detection().vehicle.orientation.name }}</p>
-          <p><strong class="text-gray-400 w-28 inline-block">Bearing:</strong> {{ detection().vehicle.bearing.toFixed(2) }}&deg;</p>
-          <p><strong class="text-gray-400 w-28 inline-block">Occlusion:</strong> {{ (detection().vehicle.occlusion * 100).toFixed(1) }}%</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Type:</strong> {{ detection().vehicle?.type?.name || 'Unknown' }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Color:</strong> <span class="capitalize">{{ detection().vehicle?.color?.code || 'Unknown' }}</span></p>
+          <p><strong class="text-gray-400 w-28 inline-block">Orientation:</strong> {{ detection().vehicle?.orientation?.name || 'Unknown' }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Bearing:</strong> {{ detection().vehicle?.bearing?.toFixed(2) || '0.00' }}&deg;</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Occlusion:</strong> {{ detection().vehicle?.occlusion ? ((detection().vehicle.occlusion * 100).toFixed(1)) : '0.0' }}%</p>
         </section>
 
         <!-- Capture Info -->
         <section class="space-y-3">
           <h3 class="text-lg font-semibold text-cyan-400 border-b border-cyan-400/20 pb-2">Capture Info</h3>
-          <p><strong class="text-gray-400 w-28 inline-block">Timestamp:</strong> {{ detection().timestamp | date:'medium' }}</p>
+          <p><strong class="text-gray-400 w-28 inline-block">Timestamp:</strong> {{ detection().timestamp ? (detection().timestamp | date:'medium') : 'N/A' }}</p>
           <p><strong class="text-gray-400 w-28 inline-block">Camera Name:</strong> {{ detection().source.name }}</p>
           <p><strong class="text-gray-400 w-28 inline-block">Camera ID:</strong> <span class="font-mono text-xs">{{ detection().source.id }}</span></p>
           <p><strong class="text-gray-400 w-28 inline-block">Location:</strong> {{ detection().location.lat.toFixed(6) }}, {{ detection().location.lon.toFixed(6) }}</p>

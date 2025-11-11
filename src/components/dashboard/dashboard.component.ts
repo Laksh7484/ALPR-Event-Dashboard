@@ -1,60 +1,68 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { LprDataService, Detection } from '../../services/lpr-data.service';
+import { LprDataService, Detection, DetectionsResponse } from '../../services/lpr-data.service';
+import { switchMap, finalize } from 'rxjs';
 import { DetectionDetailsModalComponent } from '../detection-details-modal/detection-details-modal.component';
 import { VehicleColorDistributionComponent } from '../vehicle-color-distribution/vehicle-color-distribution.component';
 import { VehicleDistributionComponent } from '../vehicle-distribution/vehicle-distribution.component';
+import { LoaderComponent } from '../loader/loader.component';
 
 @Component({
   selector: 'app-dashboard',
   templateUrl: './dashboard.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, DetectionDetailsModalComponent, VehicleColorDistributionComponent, VehicleDistributionComponent],
+  imports: [CommonModule, DetectionDetailsModalComponent, VehicleColorDistributionComponent, VehicleDistributionComponent, LoaderComponent],
 })
 export class DashboardComponent {
   private lprDataService = inject(LprDataService);
 
   kpis = toSignal(this.lprDataService.getKpis(), { initialValue: [] });
-  detections = toSignal(this.lprDataService.getDetections(), { initialValue: [] });
   
   plateTagSearch = signal('');
   selectedCamera = signal('All Cameras');
   dateRangeStart = signal('');
   dateRangeEnd = signal('');
   selectedDetection = signal<Detection | null>(null);
+  loading = signal(false);
+  
+  // Pagination
+  currentPage = signal(1);
+  itemsPerPage = signal(50);
 
-  uniqueCameraNames = computed(() => {
-    const names = this.detections().map(d => d.source.name);
-    return ['All Cameras', ...Array.from(new Set(names)).sort()];
-  });
+  private pageAndLimit = computed(() => ({ page: this.currentPage(), limit: this.itemsPerPage() }));
+
+  detectionsResponse = toSignal(
+    toObservable(this.pageAndLimit).pipe(
+      switchMap(({ page, limit }) => {
+        this.loading.set(true);
+        return this.lprDataService.getDetections(page, limit).pipe(
+          finalize(() => this.loading.set(false))
+        );
+      })
+    ),
+    { initialValue: [] }
+  );
+
+  totalItems = toSignal(this.lprDataService.getDetectionsCount(), { initialValue: { total: 0 } });
+
+  constructor() {
+    effect(() => {
+      console.log('Detections Response:', this.detectionsResponse());
+      console.log('Total Items:', this.totalItems());
+    });
+  }
+
+  paginatedDetections = computed(() => this.detectionsResponse());
 
   filteredDetections = computed(() => {
-    const plateTerm = this.plateTagSearch().toLowerCase();
-    const camera = this.selectedCamera();
-    const start = this.dateRangeStart();
-    const end = this.dateRangeEnd();
-    const allDetections = this.detections();
+    // This will be replaced with server-side filtering
+    return this.paginatedDetections();
+  });
 
-    const startDate = start ? new Date(start + 'T00:00:00') : null;
-    const endDate = end ? new Date(end + 'T23:59:59') : null;
-
-    return allDetections.filter(det => {
-      const plateMatch = plateTerm ? det.plate.tag.toLowerCase().includes(plateTerm) : true;
-      const cameraMatch = camera !== 'All Cameras' ? det.source.name === camera : true;
-
-      const detDate = new Date(det.timestamp);
-      let dateMatch = true;
-      if (startDate && endDate) {
-        dateMatch = detDate >= startDate && detDate <= endDate;
-      } else if (startDate) {
-        dateMatch = detDate >= startDate;
-      } else if (endDate) {
-        dateMatch = detDate <= endDate;
-      }
-
-      return plateMatch && cameraMatch && dateMatch;
-    });
+  uniqueCameraNames = computed(() => {
+    const names = this.paginatedDetections().map(d => d.source.name);
+    return ['All Cameras', ...Array.from(new Set(names)).sort()];
   });
 
   detectionsByCamera = computed(() => {
@@ -77,15 +85,60 @@ export class DashboardComponent {
   maxDetectionsByCamera = computed(() => 
     Math.max(...this.detectionsByCamera().map(c => c.detections), 0)
   );
+
+  totalPages = computed(() => 
+    Math.ceil(this.totalItems().total / this.itemsPerPage())
+  );
+
+  // Calculate display range
+  startItem = computed(() => {
+    const total = this.totalItems().total;
+    if (total === 0) return 0;
+    return (this.currentPage() - 1) * this.itemsPerPage() + 1;
+  });
+
+  endItem = computed(() => {
+    const total = this.totalItems().total;
+    const end = this.currentPage() * this.itemsPerPage();
+    return end > total ? total : end;
+  });
+
+  // Pagination methods
+  goToPage(page: number) {
+    const total = this.totalPages();
+    if (page >= 1 && page <= total) {
+      this.currentPage.set(page);
+    }
+  }
+
+  nextPage() {
+    if (this.currentPage() < this.totalPages()) {
+      this.currentPage.set(this.currentPage() + 1);
+    }
+  }
+
+  previousPage() {
+    if (this.currentPage() > 1) {
+      this.currentPage.set(this.currentPage() - 1);
+    }
+  }
+
+  onItemsPerPageChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    this.itemsPerPage.set(parseInt(select.value));
+    this.currentPage.set(1); // Reset to first page when changing items per page
+  }
   
   onPlateTagChange(event: Event) {
     const input = event.target as HTMLInputElement;
     this.plateTagSearch.set(input.value);
+    this.currentPage.set(1); // Reset to first page when filter changes
   }
 
   onCameraChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.selectedCamera.set(select.value);
+    this.currentPage.set(1); // Reset to first page when filter changes
   }
 
   onDateChange(type: 'start' | 'end', event: Event) {
@@ -95,6 +148,7 @@ export class DashboardComponent {
     } else {
       this.dateRangeEnd.set(input.value);
     }
+    this.currentPage.set(1); // Reset to first page when filter changes
   }
 
   clearFilters(): void {
@@ -102,6 +156,7 @@ export class DashboardComponent {
     this.selectedCamera.set('All Cameras');
     this.dateRangeStart.set('');
     this.dateRangeEnd.set('');
+    this.currentPage.set(1); // Reset to first page when clearing filters
   }
 
   exportToCsv(): void {
