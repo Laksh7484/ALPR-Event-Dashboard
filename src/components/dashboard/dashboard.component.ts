@@ -19,10 +19,13 @@ export class DashboardComponent {
 
   kpis = toSignal(this.lprDataService.getKpis(), { initialValue: [] });
   
+  // Filters
   plateTagSearch = signal('');
   selectedCamera = signal('All Cameras');
   dateRangeStart = signal('');
   dateRangeEnd = signal('');
+  
+  // Modal state
   selectedDetection = signal<Detection | null>(null);
   loading = signal(false);
   
@@ -63,6 +66,27 @@ export class DashboardComponent {
   uniqueCameraNames = computed(() => {
     const names = this.paginatedDetections().map(d => d.source.name);
     return ['All Cameras', ...Array.from(new Set(names)).sort()];
+  });
+
+  totalPages = computed(() => {
+    return Math.ceil(this.filteredDetections().length / this.itemsPerPage);
+  });
+
+  paginatedDetections = computed(() => {
+    const page = this.currentPage();
+    const start = (page - 1) * this.itemsPerPage;
+    const end = start + this.itemsPerPage;
+    return this.filteredDetections().slice(start, end);
+  });
+  
+  paginationSummary = computed(() => {
+    const total = this.filteredDetections().length;
+    if (total === 0) {
+      return '';
+    }
+    const start = (this.currentPage() - 1) * this.itemsPerPage + 1;
+    const end = Math.min(this.currentPage() * this.itemsPerPage, total);
+    return `Showing ${start} to ${end} of ${total} results`;
   });
 
   detectionsByCamera = computed(() => {
