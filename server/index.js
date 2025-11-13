@@ -137,17 +137,187 @@ function toTitleCase(s) {
     .join(' ');
 }
 
-// API endpoint to fetch ALPR events
-app.get('/api/detections', async (req, res) => {
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 50;
-  const offset = (page - 1) * limit;
+const CAR_MAKE_SOURCE_SQL = `
+  COALESCE(
+    NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'make', 'name')), ''),
+    NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'make', 'code')), ''),
+    NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'make')), ''),
+    NULLIF(btrim((metadata::jsonb)->>'make'), ''),
+    NULLIF(btrim((metadata::jsonb)->>'vehicleMake'), ''),
+    NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'attributes', 'make', 'name')), ''),
+    NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'attributes', 'make', 'code')), ''),
+    NULLIF(btrim((metadata::jsonb)->'attributes'->>'make'), ''),
+    'unknown'
+  )
+`;
+
+// Helper function to transform database row to Detection object
+function transformRowToDetection(row) {
+  let metadata = {};
+  try {
+    metadata = typeof row.metadata === 'string' 
+      ? JSON.parse(row.metadata) 
+      : (row.metadata || {});
+  } catch (error) {
+    console.error('Error parsing metadata JSON:', error);
+    metadata = {};
+  }
+
+  // Extract vehicle info from metadata - check multiple possible locations
+  const vehicleData = metadata.vehicle || metadata.vehicleData || 
+                     (metadata.attributes && metadata.attributes.vehicle) || null;
+  
+  let vehicle = {
+    bearing: 0,
+    color: { code: 'unknown' },
+    occlusion: 0,
+    orientation: {
+      code: 'unknown',
+    name: 'N/A'
+    },
+    make: {
+      code: 'unknown',
+    name: 'N/A'
+    },
+    type: {
+      code: 'unknown',
+    name: 'N/A'
+    }
+  };
+
+  if (vehicleData) {
+    // Extract color
+    if (vehicleData.color) {
+      if (typeof vehicleData.color === 'object') {
+        vehicle.color = {
+          code: vehicleData.color.code || vehicleData.color.name || 'unknown'
+        };
+      } else {
+        vehicle.color = { code: vehicleData.color };
+      }
+    }
+
+    // Extract orientation
+    if (vehicleData.orientation) {
+      const orientationCode = typeof vehicleData.orientation === 'object' 
+        ? (vehicleData.orientation.code || vehicleData.orientation.name || 'unknown')
+        : vehicleData.orientation;
+      
+      vehicle.orientation = {
+        code: orientationCode,
+        name: (typeof vehicleData.orientation === 'object' ? vehicleData.orientation.name : null) || 
+              (orientationCode === 'rear' ? 'Rear' : 
+               orientationCode === 'front' ? 'Front' :
+               orientationCode === 'side' ? 'Side' : 
+               orientationCode === 'back' ? 'Rear' :
+                   orientationCode === 'forward' ? 'Front' : 'N/A')
+      };
+    }
+
+    // Extract make
+    if (vehicleData.make) {
+      const value = vehicleData.make;
+      if (typeof value === 'string') {
+        vehicle.make = { code: value.toLowerCase(), name: toTitleCase(value) };
+      } else if (typeof value === 'object') {
+        const nameSource = value.name || value.code || 'N/A';
+        const name = toTitleCase(nameSource.toString());
+        vehicle.make = { code: (value.code || name).toString().toLowerCase(), name };
+      }
+    }
+
+    const metaLevelMake = extractVehicleMake(metadata);
+    if (metaLevelMake) {
+      vehicle.make = {
+        code: metaLevelMake.code.toLowerCase(),
+        name: toTitleCase(metaLevelMake.name),
+      };
+    }
+
+    // Extract type
+    if (vehicleData.type) {
+      const typeCode = typeof vehicleData.type === 'object' 
+        ? (vehicleData.type.code || vehicleData.type.name || 'unknown')
+        : vehicleData.type;
+      
+      vehicle.type = {
+        code: typeCode,
+        name: (typeof vehicleData.type === 'object' ? vehicleData.type.name : null) || 
+              (typeCode === 'sedan' ? 'Sedan' :
+               typeCode === 'suv' ? 'SUV' :
+               typeCode === 'truck' ? 'Truck' :
+               typeCode === 'van' ? 'Van' : 
+               typeCode === 'car' ? 'Car' :
+               typeCode === 'motorcycle' ? 'Motorcycle' :
+                   typeCode === 'bus' ? 'Bus' : 'N/A')
+      };
+    }
+
+    // Extract other vehicle properties
+    if (vehicleData.bearing !== undefined && vehicleData.bearing !== null) {
+      vehicle.bearing = vehicleData.bearing;
+    }
+    if (vehicleData.occlusion !== undefined && vehicleData.occlusion !== null) {
+      vehicle.occlusion = vehicleData.occlusion;
+    }
+  }
+
+  // Use metadata.plate if available, otherwise construct from database columns
+  const plate = metadata.plate ? {
+    ...metadata.plate,
+    tag: metadata.plate.tag || row.plate_tag || ''
+  } : {
+    code: 'US-FL',
+    region: { height: 0, width: 0, x: 0, y: 0 },
+    tag: row.plate_tag || ''
+  };
+
+  // Use metadata.source if available, otherwise construct from database columns
+  const source = metadata.source ? {
+    ...metadata.source,
+    name: metadata.source.name || row.camera_name || 'N/A',
+    id: metadata.source.id || row.camera_id || ''
+  } : {
+    id: row.camera_id || '',
+    name: row.camera_name || 'N/A',
+    type: 'alpr_processor'
+  };
+
+  // Handle timestamp from multiple possible sources
+  let timestamp = null;
+  timestamp = normalizeTimestamp(metadata.timestamp);
+  if (!timestamp) timestamp = normalizeTimestamp(row.timestamp);
+  if (!timestamp) timestamp = normalizeTimestamp(metadata.image && metadata.image.timestamp);
+
+  return {
+    id: row.id || metadata.id,
+    image: metadata.image || { height: 1080, id: '', width: 1920 },
+    location: metadata.location || { lat: 0, lon: 0 },
+    plate: plate,
+    source: source,
+    timeOfDay: metadata.timeOfDay || 0,
+    timestamp: timestamp,
+    type: metadata.type || 'alpr',
+    vehicle: vehicle,
+    version: metadata.version || '1.0'
+  };
+}
+
+// API endpoint to search for a plate tag across all records
+// This must come BEFORE /api/detections to ensure proper route matching
+app.get('/api/detections/search', async (req, res) => {
+  const plateTag = req.query.plateTag;
+  
+  if (!plateTag || plateTag.trim() === '') {
+    return res.status(400).json({ error: 'Plate tag is required' });
+  }
 
   try {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
     
+    // Search for plate tag (case-insensitive, partial match)
     const query = `
       SELECT 
         id,
@@ -158,184 +328,79 @@ app.get('/api/detections', async (req, res) => {
         metadata,
         source_file
       FROM ${fullTableName}
+      WHERE LOWER(plate_tag) LIKE LOWER($1)
       ORDER BY timestamp DESC
-      LIMIT $1 OFFSET $2
+      LIMIT 100
     `;
 
-    const result = await pool.query(query, [limit, offset]);
+    const searchPattern = `%${plateTag.trim()}%`;
+    const result = await pool.query(query, [searchPattern]);
     
     // Transform database rows to match Detection interface
-    const detections = result.rows.map(row => {
-      let metadata = {};
-      try {
-        metadata = typeof row.metadata === 'string' 
-          ? JSON.parse(row.metadata) 
-          : (row.metadata || {});
-      } catch (error) {
-        console.error('Error parsing metadata JSON:', error);
-        metadata = {};
-      }
+    const detections = result.rows.map(row => transformRowToDetection(row));
 
-      // Extract vehicle info from metadata - check multiple possible locations
-      // Check if vehicle data exists at different nesting levels
-      const vehicleData = metadata.vehicle || metadata.vehicleData || 
-                         (metadata.attributes && metadata.attributes.vehicle) || null;
-      
-      let vehicle = {
-        bearing: 0,
-        color: { code: 'unknown' },
-        occlusion: 0,
-        orientation: {
-          code: 'unknown',
-          name: 'Unknown'
-        },
-        make: {
-          code: 'unknown',
-          name: 'Unknown'
-        },
-        type: {
-          code: 'unknown',
-          name: 'Unknown'
-        }
-      };
+    res.json(detections);
+  } catch (error) {
+    console.error('Error searching detections:', error);
+    res.status(500).json({ error: 'Failed to search detections', message: error.message });
+  }
+});
 
-      if (vehicleData) {
-        // Extract color (handle both object and string formats)
-        if (vehicleData.color) {
-          if (typeof vehicleData.color === 'object') {
-            vehicle.color = {
-              code: vehicleData.color.code || vehicleData.color.name || 'unknown'
-            };
-          } else {
-            vehicle.color = { code: vehicleData.color };
-          }
-        }
+// API endpoint to fetch ALPR events
+app.get('/api/detections', async (req, res) => {
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 50;
+  const offset = (page - 1) * limit;
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
 
-        // Extract orientation (handle both object and string formats)
-        if (vehicleData.orientation) {
-          const orientationCode = typeof vehicleData.orientation === 'object' 
-            ? (vehicleData.orientation.code || vehicleData.orientation.name || 'unknown')
-            : vehicleData.orientation;
-          
-          vehicle.orientation = {
-            code: orientationCode,
-            name: (typeof vehicleData.orientation === 'object' ? vehicleData.orientation.name : null) || 
-                  (orientationCode === 'rear' ? 'Rear' : 
-                   orientationCode === 'front' ? 'Front' :
-                   orientationCode === 'side' ? 'Side' : 
-                   orientationCode === 'back' ? 'Rear' :
-                   orientationCode === 'forward' ? 'Front' : 'Unknown')
-          };
-        }
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+    
+    let query = `
+      SELECT 
+        id,
+        timestamp,
+        plate_tag,
+        camera_id,
+        camera_name,
+        metadata,
+        source_file
+      FROM ${fullTableName}
+    `;
+    
+    const queryParams = [];
+    const whereConditions = [];
+    
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+    
+    // Add car make filter if provided (search in metadata JSON)
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+    
+    // Add WHERE clause if we have any conditions
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    
+    query += ` ORDER BY timestamp DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
+    queryParams.push(limit, offset);
 
-        // Extract make (handle both object and string formats)
-        if (vehicleData.make) {
-          const value = vehicleData.make;
-          if (typeof value === 'string') {
-            vehicle.make = { code: value.toLowerCase(), name: toTitleCase(value) };
-          } else if (typeof value === 'object') {
-            const name = toTitleCase((value.name || value.code || 'Unknown').toString());
-            vehicle.make = { code: (value.code || name).toString().toLowerCase(), name };
-          }
-        }
-
-        // Global fallback: always attempt a metadata-level extraction and prefer it if present
-        const metaLevelMake = extractVehicleMake(metadata);
-        if (metaLevelMake) {
-          vehicle.make = {
-            code: metaLevelMake.code.toLowerCase(),
-            name: toTitleCase(metaLevelMake.name),
-          };
-        }
-
-        // Optional debug: log one sample when make remains unknown but metadata contains a make key
-        if (process.env.DEBUG_MAKE === 'true') {
-          const hasAnyMake = !!(
-            (metadata.vehicle && (metadata.vehicle.make || metadata.vehicle.manufacturer || metadata.vehicle.brand)) ||
-            metadata.make || metadata.vehicleMake ||
-            (metadata.attributes && (metadata.attributes.make || metadata.attributes.manufacturer || metadata.attributes.brand))
-          );
-          if (vehicle.make && vehicle.make.code === 'unknown' && hasAnyMake) {
-            console.log('[DEBUG_MAKE] Could not normalize make for row id=', row.id, 'metadata snippet=', JSON.stringify(metadata).slice(0, 400));
-          }
-        }
-
-        // Extract type (handle both object and string formats)
-        if (vehicleData.type) {
-          const typeCode = typeof vehicleData.type === 'object' 
-            ? (vehicleData.type.code || vehicleData.type.name || 'unknown')
-            : vehicleData.type;
-          
-          vehicle.type = {
-            code: typeCode,
-            name: (typeof vehicleData.type === 'object' ? vehicleData.type.name : null) || 
-                  (typeCode === 'sedan' ? 'Sedan' :
-                   typeCode === 'suv' ? 'SUV' :
-                   typeCode === 'truck' ? 'Truck' :
-                   typeCode === 'van' ? 'Van' : 
-                   typeCode === 'car' ? 'Car' :
-                   typeCode === 'motorcycle' ? 'Motorcycle' :
-                   typeCode === 'bus' ? 'Bus' : 'Unknown')
-          };
-        }
-
-        // Extract other vehicle properties
-        if (vehicleData.bearing !== undefined && vehicleData.bearing !== null) {
-          vehicle.bearing = vehicleData.bearing;
-        }
-        if (vehicleData.occlusion !== undefined && vehicleData.occlusion !== null) {
-          vehicle.occlusion = vehicleData.occlusion;
-        }
-      }
-      
-      // Debug: Log first detection's metadata structure (only once)
-      if (result.rows.indexOf(row) === 0 && !metadata.vehicle) {
-        console.log('Metadata structure (no vehicle data found):', JSON.stringify(metadata, null, 2).substring(0, 500));
-      }
-
-      // Use metadata.plate if available, otherwise construct from database columns
-      const plate = metadata.plate ? {
-        ...metadata.plate,
-        tag: metadata.plate.tag || row.plate_tag || ''
-      } : {
-        code: 'US-FL',
-        region: { height: 0, width: 0, x: 0, y: 0 },
-        tag: row.plate_tag || ''
-      };
-
-      // Use metadata.source if available, otherwise construct from database columns
-      const source = metadata.source ? {
-        ...metadata.source,
-        name: metadata.source.name || row.camera_name || 'Unknown',
-        id: metadata.source.id || row.camera_id || ''
-      } : {
-        id: row.camera_id || '',
-        name: row.camera_name || 'Unknown',
-        type: 'alpr_processor'
-      };
-
-      // Handle timestamp from multiple possible sources
-      let timestamp = null;
-      // 1) metadata.timestamp (could be seconds, ms, ISO string)
-      timestamp = normalizeTimestamp(metadata.timestamp);
-      // 2) fallback to database column
-      if (!timestamp) timestamp = normalizeTimestamp(row.timestamp);
-      // 3) additional fallbacks occasionally seen in payloads
-      if (!timestamp) timestamp = normalizeTimestamp(metadata.image && metadata.image.timestamp);
-
-      return {
-        id: row.id || metadata.id,
-        image: metadata.image || { height: 1080, id: '', width: 1920 },
-        location: metadata.location || { lat: 0, lon: 0 },
-        plate: plate,
-        source: source,
-        timeOfDay: metadata.timeOfDay || 0,
-        timestamp: timestamp,
-        type: metadata.type || 'alpr',
-        vehicle: vehicle,
-        version: metadata.version || '1.0'
-      };
-    });
+    const result = await pool.query(query, queryParams);
+    
+    // Transform database rows to match Detection interface
+    const detections = result.rows.map(row => transformRowToDetection(row));
 
     res.json(detections);
   } catch (error) {
@@ -344,15 +409,101 @@ app.get('/api/detections', async (req, res) => {
   }
 });
 
-// API endpoint to get total detection count
-app.get('/api/detections/count', async (req, res) => {
+// API endpoint to get all unique camera names
+app.get('/api/cameras', async (req, res) => {
   try {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
 
-    const query = `SELECT COUNT(*) FROM ${fullTableName}`;
+    const query = `
+      SELECT DISTINCT camera_name 
+      FROM ${fullTableName}
+      WHERE camera_name IS NOT NULL
+      ORDER BY camera_name ASC
+    `;
+    
     const result = await pool.query(query);
+    const cameras = result.rows.map(row => row.camera_name);
+    
+    res.json(cameras);
+  } catch (error) {
+    console.error('Error fetching cameras:', error);
+    res.status(500).json({ error: 'Failed to fetch cameras', message: error.message });
+  }
+});
+
+// API endpoint to get all unique car makes from metadata
+app.get('/api/car-makes', async (req, res) => {
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    const query = `
+      SELECT DISTINCT ${CAR_MAKE_SOURCE_SQL} AS raw_make
+      FROM ${fullTableName}
+      WHERE metadata IS NOT NULL
+      ORDER BY raw_make ASC
+    `;
+    
+    const result = await pool.query(query);
+    const makes = result.rows
+      .map(row => row.raw_make)
+      .filter(make => make && make.trim() !== '')
+      .map(make => {
+        // Normalize "unknown" to "N/A"
+        const normalized = make.trim().toLowerCase();
+        if (normalized === 'unknown') {
+          return 'N/A';
+        }
+        return toTitleCase(make.trim());
+      })
+      .filter((make, index, self) => self.indexOf(make) === index) // Remove duplicates
+      .sort();
+    
+    res.json(makes);
+  } catch (error) {
+    console.error('Error fetching car makes:', error);
+    res.status(500).json({ error: 'Failed to fetch car makes', message: error.message });
+  }
+});
+
+// API endpoint to get total detection count
+app.get('/api/detections/count', async (req, res) => {
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
+  
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    let query = `SELECT COUNT(*) FROM ${fullTableName}`;
+    const queryParams = [];
+    const whereConditions = [];
+    
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+    
+    // Add car make filter if provided
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+    
+    // Add WHERE clause if we have any conditions
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    
+    const result = await pool.query(query, queryParams);
     
     res.json({ total: parseInt(result.rows[0].count, 10) });
 
@@ -391,7 +542,7 @@ app.get('/api/kpis', async (req, res) => {
     res.json([
       {
         title: 'Total Detections',
-        value: totalDetections.toLocaleString(),
+        value: totalDetections.toLocaleString('en-US'),
         icon: 'M3 10h18M3 14h18m-9-4v8',
         color: 'cyan'
       },

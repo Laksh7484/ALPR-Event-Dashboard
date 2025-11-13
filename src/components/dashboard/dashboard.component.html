@@ -1,5 +1,5 @@
-@if (loading()) {
-  <app-loader></app-loader>
+@if (loading() || searching()) {
+<app-loader></app-loader>
 }
 <div class="p-6 lg:p-8 space-y-8">
   <!-- Header -->
@@ -11,25 +11,13 @@
   <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6">
     @for(kpi of kpis(); track kpi.title) {
     <div
-      class="bg-gray-800 border border-gray-700 rounded-xl p-5 flex flex-col justify-between transform hover:-translate-y-1 transition-transform duration-300"
-    >
+      class="bg-gray-800 border border-gray-700 rounded-xl p-5 flex flex-col justify-between transform hover:-translate-y-1 transition-transform duration-300">
       <div class="flex justify-between items-start">
         <p class="text-gray-400 text-sm font-medium">{{ kpi.title }}</p>
         <div [class]="'p-2 rounded-lg bg-' + kpi.color + '-500/10'">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            [class]="'text-' + kpi.color + '-400'"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              [attr.d]="kpi.icon"
-            />
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" [class]="'text-' + kpi.color + '-400'" fill="none"
+            viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="kpi.icon" />
           </svg>
         </div>
       </div>
@@ -42,93 +30,79 @@
 
   <!-- Filters -->
   <section class="bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-lg">
-    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
+    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4 items-end">
       <!-- Camera Name -->
       <div class="flex flex-col space-y-1">
-        <label for="camera-name" class="text-sm font-medium text-gray-400"
-          >Camera Name</label
-        >
-        <select
-          id="camera-name"
-          [value]="selectedCamera()"
-          (change)="onCameraChange($event)"
-          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5"
-        >
+        <label for="camera-name" class="text-sm font-medium text-gray-400">Camera Name</label>
+        <select id="camera-name" [value]="selectedCamera()" (change)="onCameraChange($event)"
+          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5">
           @for(camera of uniqueCameraNames(); track camera) {
-          <option [value]="camera">{{ camera }}</option>
+          <option [value]="camera">{{ formatValue(camera) }}</option>
+          }
+        </select>
+      </div>
+
+      <!-- Car Make -->
+      <div class="flex flex-col space-y-1">
+        <label for="car-make" class="text-sm font-medium text-gray-400">Vehicle Make</label>
+        <select id="car-make" [value]="selectedCarMake()" (change)="onCarMakeChange($event)"
+          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5">
+          @for(make of uniqueCarMakes(); track make) {
+          <option [value]="make">{{ formatValue(make) }}</option>
           }
         </select>
       </div>
 
       <!-- Plate Tag -->
       <div class="flex flex-col space-y-1">
-        <label for="plate-tag" class="text-sm font-medium text-gray-400"
-          >Plate Tag</label
-        >
-        <input
-          id="plate-tag"
-          type="text"
-          placeholder="Search plate..."
-          [value]="plateTagSearch()"
-          (input)="onPlateTagChange($event)"
-          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5 placeholder-gray-400"
-        />
+        <label for="plate-tag" class="text-sm font-medium text-gray-400">Plate Tag</label>
+        <input id="plate-tag" type="text" placeholder="Search plate..." [value]="plateTagSearch()"
+          (input)="onPlateTagChange($event)" (keydown.enter)="searchPlate()"
+          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5 placeholder-gray-400" />
       </div>
 
       <!-- From Date -->
       <div class="flex flex-col space-y-1">
-        <label for="from-date" class="text-sm font-medium text-gray-400"
-          >From Date</label
-        >
-        <input
-          id="from-date"
-          type="date"
-          [value]="dateRangeStart()"
-          (change)="onDateChange('start', $event)"
-          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5"
-        />
+        <label for="from-date" class="text-sm font-medium text-gray-400">From Date</label>
+        <input id="from-date" type="date" [value]="dateRangeStart()" (change)="onDateChange('start', $event)"
+          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5" />
       </div>
 
       <!-- To Date -->
       <div class="flex flex-col space-y-1">
-        <label for="to-date" class="text-sm font-medium text-gray-400"
-          >To Date</label
-        >
-        <input
-          id="to-date"
-          type="date"
-          [value]="dateRangeEnd()"
-          (change)="onDateChange('end', $event)"
-          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5"
-        />
+        <label for="to-date" class="text-sm font-medium text-gray-400">To Date</label>
+        <input id="to-date" type="date" [value]="dateRangeEnd()" (change)="onDateChange('end', $event)"
+          class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5" />
       </div>
 
-      <!-- Clear Button -->
-      <button
-        (click)="clearFilters()"
-        class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-200 w-full"
-      >
-        Clear
+      <!-- Search Button -->
+      <button (click)="searchPlate()" [disabled]="searching()" [class.opacity-50]="searching()"
+        [class.cursor-not-allowed]="searching()"
+        class="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 w-full disabled:hover:bg-cyan-600">
+        @if (searching()) {
+        <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+          </path>
+        </svg>
+        <span>Searching...</span>
+        } @else {
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+          stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <span>Search</span>
+        }
       </button>
 
       <!-- Export CSV Button -->
-      <button
-        (click)="exportToCsv()"
-        class="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 w-full"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-5 w-5"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-          />
+      <button (click)="exportToCsv()"
+        class="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2.5 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 w-full">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+          stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
         <span>Export CSV</span>
       </button>
@@ -138,17 +112,27 @@
   <!-- Main Grid Content -->
   <div class="grid grid-cols-1 xl:grid-cols-5 gap-8">
     <!-- Left Section -->
-    <div class="xl:col-span-3 space-y-8">
+    <div class="xl:col-span-3">
       <!-- Detections Grid -->
-      <section class="bg-gray-800 border border-gray-700 rounded-xl">
-        <div
-          class="flex flex-wrap justify-between items-center p-6 border-b border-gray-700 gap-4"
-        >
-          <h2 class="text-xl font-semibold text-white">Detection History</h2>
+      <section class="bg-gray-800 border border-gray-700 rounded-xl flex flex-col"
+        style="height: fit-content; max-height: 1150px;">
+        <div class="flex flex-wrap justify-between items-center p-6 border-b border-gray-700 gap-4 flex-shrink-0">
+          <div class="flex items-center gap-3">
+            <h2 class="text-xl font-semibold text-white">Detection History</h2>
+            @if (isSearchMode()) {
+            <span class="text-sm text-cyan-400 bg-cyan-400/10 px-3 py-1 rounded-full">
+              Search Results
+            </span>
+            <button (click)="clearSearch()" class="text-sm text-gray-400 hover:text-white transition-colors"
+              title="Clear search and return to all detections">
+              Clear Search
+            </button>
+            }
+          </div>
         </div>
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto overflow-y-auto" style="max-height: 950px; min-height: 600px;">
           <table class="w-full text-sm text-left text-gray-400">
-            <thead class="text-xs text-gray-300 uppercase bg-gray-700/50">
+            <thead class="text-xs text-gray-300 uppercase bg-gray-700 sticky top-0 z-10 shadow-md">
               <tr>
                 <th scope="col" class="px-6 py-3">Plate Tag</th>
                 <th scope="col" class="px-6 py-3">Camera</th>
@@ -162,60 +146,54 @@
               </tr>
             </thead>
             <tbody>
-              @if (filteredDetections().length > 0) { @for(det of
+              @if (isSearchMode() && filteredDetections().length === 0 && !searching()) {
+              <tr>
+                <td colspan="7" class="text-center py-8 text-gray-500">
+                  No plates found matching "{{ plateTagSearch() }}".
+                </td>
+              </tr>
+              } @else if (filteredDetections().length > 0) { @for(det of
               filteredDetections(); track det.id) {
-              <tr
-                (click)="selectDetection(det)"
-                class="group border-b border-gray-700 hover:bg-gray-700 transition-colors duration-200 cursor-pointer"
-              >
+              <tr (click)="selectDetection(det)"
+                class="group border-b border-gray-700 hover:bg-gray-700 transition-colors duration-200 cursor-pointer">
                 <td class="px-6 py-4 font-mono font-medium text-white">
                   {{ det.plate.tag }}
                 </td>
-                <td class="px-6 py-4">{{ det.source.name }}</td>
+                <td class="px-6 py-4">{{ formatValue(det.source.name) }}</td>
                 <td class="px-6 py-4">
                   {{
-                    det.timestamp
-                      ? (det.timestamp | date : 'MMM d, y, h:mm a')
-                      : 'N/A'
+                  det.timestamp
+                  ? (det.timestamp | date : 'MMM d, y, h:mm a')
+                  : 'N/A'
                   }}
                 </td>
                 <td class="px-6 py-4">
-                  {{ det.vehicle?.make?.name || 'Unknown' }}
+                  {{ formatValue(det.vehicle?.make?.name) }}
                 </td>
                 <td class="px-6 py-4">
-                  {{ det.vehicle?.type?.name || 'Unknown' }}
+                  {{ formatValue(det.vehicle?.type?.name) }}
                 </td>
                 <td class="px-6 py-4 flex items-center gap-2">
-                  <span
-                    class="w-4 h-4 rounded-full border border-white/20"
-                    [style.backgroundColor]="det.vehicle?.color?.code || 'gray'"
-                    [class.bg-gray-600]="
+                  <span class="w-4 h-4 rounded-full border border-white/20"
+                    [style.backgroundColor]="det.vehicle?.color?.code || 'gray'" [class.bg-gray-600]="
                       !det.vehicle?.color?.code ||
                       det.vehicle?.color?.code === 'unknown'
-                    "
-                  ></span>
-                  <span class="capitalize">{{
-                    det.vehicle?.color?.code || 'Unknown'
-                  }}</span>
+                    "></span>
+                  <span>{{ formatValue(det.vehicle?.color?.code) }}</span>
                 </td>
                 <td class="px-2 py-4">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
+                  <svg xmlns="http://www.w3.org/2000/svg"
                     class="h-5 w-5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fill-rule="evenodd"
+                    viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd"
                       d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-                      clip-rule="evenodd"
-                    />
+                      clip-rule="evenodd" />
                   </svg>
                 </td>
               </tr>
               } } @else {
               <tr>
-                <td colspan="6" class="text-center py-8 text-gray-500">
+                <td colspan="7" class="text-center py-8 text-gray-500">
                   No detections found.
                 </td>
               </tr>
@@ -227,23 +205,17 @@
         <!-- Pagination Controls -->
         @if (totalItems().total > 0) {
         <div
-          class="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 border-t border-gray-700"
-        >
+          class="flex flex-col sm:flex-row items-center justify-between gap-4 p-6 border-t border-gray-700 flex-shrink-0">
           <div class="flex items-center gap-2 text-sm text-gray-400">
-            <span
-              >Showing {{ startItem() }} to {{ endItem() }} of
-              {{ totalItems().total }} results</span
-            >
+            <span>Showing {{ startItem() }} to {{ endItem() }} of
+              {{ totalItems().total }} results</span>
           </div>
 
           <div class="flex items-center gap-4">
             <div class="flex items-center gap-2 text-sm text-gray-400">
               <span>Show</span>
-              <select
-                [value]="itemsPerPage()"
-                (change)="onItemsPerPageChange($event)"
-                class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 px-2 py-1.5"
-              >
+              <select [value]="itemsPerPage()" (change)="onItemsPerPageChange($event)"
+                class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 px-2 py-1.5">
                 <option value="50">50</option>
                 <option value="100">100</option>
                 <option value="200">200</option>
@@ -253,23 +225,16 @@
             </div>
 
             <div class="flex items-center gap-2">
-              <button
-                (click)="previousPage()"
-                [disabled]="currentPage() === 1"
-                [class.opacity-50]="currentPage() === 1"
+              <button (click)="previousPage()" [disabled]="currentPage() === 1" [class.opacity-50]="currentPage() === 1"
                 [class.cursor-not-allowed]="currentPage() === 1"
-                class="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 border border-gray-600 rounded-lg hover:bg-gray-600 disabled:hover:bg-gray-700 transition-colors"
-              >
+                class="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 border border-gray-600 rounded-lg hover:bg-gray-600 disabled:hover:bg-gray-700 transition-colors">
                 Previous
               </button>
 
-              <button
-                (click)="nextPage()"
-                [disabled]="currentPage() === totalPages()"
+              <button (click)="nextPage()" [disabled]="currentPage() === totalPages()"
                 [class.opacity-50]="currentPage() === totalPages()"
                 [class.cursor-not-allowed]="currentPage() === totalPages()"
-                class="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 border border-gray-600 rounded-lg hover:bg-gray-600 disabled:hover:bg-gray-700 transition-colors"
-              >
+                class="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 border border-gray-600 rounded-lg hover:bg-gray-600 disabled:hover:bg-gray-700 transition-colors">
                 Next
               </button>
             </div>
@@ -291,24 +256,16 @@
           @for(cam of detectionsByCamera(); track cam.camera) {
           <div class="flex-1 flex flex-col items-center group relative">
             <div
-              class="absolute bottom-6 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10"
-            >
+              class="absolute bottom-6 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
               {{ cam.detections }} detections
             </div>
             <div class="w-full h-full flex items-end justify-center">
-              <div
-                class="w-full min-h-[4px] rounded-t-md transition-all duration-300 flex items-end justify-center"
-                [class.bg-cyan-400]="$even"
-                [class.bg-cyan-600]="$odd"
-                [style.height]="
+              <div class="w-full min-h-[4px] rounded-t-md transition-all duration-300 flex items-end justify-center"
+                [class.bg-cyan-400]="$even" [class.bg-cyan-600]="$odd" [style.height]="
                   (cam.detections / maxDetectionsByCamera()) * 100 + '%'
-                "
-              ></div>
+                "></div>
             </div>
-            <span
-              class="text-xs text-gray-400 mt-2 text-center break-words px-1"
-              >{{ cam.camera }}</span
-            >
+            <span class="text-xs text-gray-400 mt-2 text-center break-words px-1">{{ cam.camera }}</span>
           </div>
           }
         </div>
@@ -320,14 +277,10 @@
       </section>
 
       <!-- Vehicle Distribution -->
-      <app-vehicle-distribution
-        [detections]="filteredDetections()"
-      ></app-vehicle-distribution>
+      <app-vehicle-distribution [detections]="filteredDetections()"></app-vehicle-distribution>
 
       <!-- Vehicle Color Distribution -->
-      <app-vehicle-color-distribution
-        [detections]="filteredDetections()"
-      ></app-vehicle-color-distribution>
+      <app-vehicle-color-distribution [detections]="filteredDetections()"></app-vehicle-color-distribution>
     </div>
   </div>
 </div>
