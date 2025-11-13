@@ -75,12 +75,43 @@ export class LprDataService {
     return this.http.get<Kpi[]>(`${API_BASE_URL}/kpis`);
   }
 
-  getDetections(page: number, limit: number): Observable<Detection[]> {
-    return this.http.get<Detection[]>(`${API_BASE_URL}/detections?page=${page}&limit=${limit}`);
+  getDetections(page: number, limit: number, cameraName?: string, carMake?: string): Observable<Detection[]> {
+    let url = `${API_BASE_URL}/detections?page=${page}&limit=${limit}`;
+    if (cameraName && cameraName !== 'All Cameras') {
+      url += `&cameraName=${encodeURIComponent(cameraName)}`;
+    }
+    if (carMake && carMake !== 'All Makes') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const apiCarMake = normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      url += `&carMake=${encodeURIComponent(apiCarMake)}`;
+    }
+    return this.http.get<Detection[]>(url);
   }
 
-  getDetectionsCount(): Observable<{ total: number }> {
-    return this.http.get<{ total: number }>(`${API_BASE_URL}/detections/count`);
+  getDetectionsCount(cameraName?: string, carMake?: string): Observable<{ total: number }> {
+    const params: string[] = [];
+    if (cameraName && cameraName !== 'All Cameras') {
+      params.push(`cameraName=${encodeURIComponent(cameraName)}`);
+    }
+    if (carMake && carMake !== 'All Makes') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const apiCarMake = normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      params.push(`carMake=${encodeURIComponent(apiCarMake)}`);
+    }
+    const queryString = params.length > 0 ? `?${params.join('&')}` : '';
+    return this.http.get<{ total: number }>(`${API_BASE_URL}/detections/count${queryString}`);
+  }
+
+  getCameras(): Observable<string[]> {
+    return this.http.get<string[]>(`${API_BASE_URL}/cameras`);
+  }
+
+  getCarMakes(): Observable<string[]> {
+    return this.http.get<string[]>(`${API_BASE_URL}/car-makes`);
+  }
+
+  searchPlate(plateTag: string): Observable<Detection[]> {
+    return this.http.get<Detection[]>(`${API_BASE_URL}/detections/search?plateTag=${encodeURIComponent(plateTag)}`);
   }
 
   getHeatmapData() {
