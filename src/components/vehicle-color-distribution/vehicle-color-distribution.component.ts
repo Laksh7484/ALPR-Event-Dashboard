@@ -18,6 +18,8 @@ interface VehicleColorStat {
 })
 export class VehicleColorDistributionComponent {
   detections = input.required<Detection[]>();
+  analyticsData = input<{name: string, count: number}[]>([]);
+  isSearchMode = input<boolean>(false);
 
   private readonly colorMap: Record<string, string> = {
     'white': '#ffffff',
@@ -50,23 +52,54 @@ export class VehicleColorDistributionComponent {
   }
 
   chartData = computed<VehicleColorStat[]>(() => {
-    const counts = new Map<string, number>();
-    for (const det of this.detections()) {
-      const colorName = det.vehicle?.color?.code || 'unknown';
-      counts.set(colorName, (counts.get(colorName) || 0) + 1);
+    let sortedData: Array<{name: string, count: number, percentage: number, color: string}> = [];
+
+    if (this.isSearchMode()) {
+      // Calculate from search results (full detections)
+      const counts = new Map<string, number>();
+      for (const det of this.detections()) {
+        let colorName = det.vehicle?.color?.code;
+        // Normalize empty, null, undefined, or 'unknown' to 'N/A'
+        if (!colorName || colorName.trim() === '' || colorName === 'unknown') {
+          colorName = 'N/A';
+        }
+        counts.set(colorName, (counts.get(colorName) || 0) + 1);
+      }
+
+      const total = this.detections().length;
+      if (total === 0) return [];
+
+      sortedData = Array.from(counts.entries())
+        .map(([name, count]) => ({
+          name: name.charAt(0).toUpperCase() + name.slice(1),
+          count,
+          percentage: (count / total) * 100,
+          color: this.getColorHex(name),
+        }))
+        .sort((a, b) => b.count - a.count);
+    } else {
+      // Use analytics data
+      const analyticsData = this.analyticsData();
+      const total = analyticsData.reduce((sum, item) => sum + item.count, 0);
+      if (total === 0) return [];
+
+      sortedData = analyticsData
+        .map(item => {
+          // Normalize the name to ensure consistency
+          let name = item.name;
+          if (!name || name.trim() === '' || name === 'unknown') {
+            name = 'N/A';
+          }
+          
+          return {
+            name: name.charAt(0).toUpperCase() + name.slice(1),
+            count: item.count,
+            percentage: (item.count / total) * 100,
+            color: this.getColorHex(name),
+          };
+        })
+        .sort((a, b) => b.count - a.count);
     }
-
-    const total = this.detections().length;
-    if (total === 0) return [];
-
-    const sortedData = Array.from(counts.entries())
-      .map(([name, count]) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1),
-        count,
-        percentage: (count / total) * 100,
-        color: this.getColorHex(name),
-      }))
-      .sort((a, b) => b.count - a.count);
     
     let cumulativeOffset = 0;
     return sortedData.map(item => {
