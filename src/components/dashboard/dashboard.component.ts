@@ -4,15 +4,14 @@ import { CommonModule } from '@angular/common';
 import { LprDataService, Detection, DetectionsResponse } from '../../services/lpr-data.service';
 import { switchMap, finalize, of } from 'rxjs';
 import { DetectionDetailsModalComponent } from '../detection-details-modal/detection-details-modal.component';
-import { VehicleColorDistributionComponent } from '../vehicle-color-distribution/vehicle-color-distribution.component';
-import { VehicleDistributionComponent } from '../vehicle-distribution/vehicle-distribution.component';
+// Removed unused visualization component imports
 import { LoaderComponent } from '../loader/loader.component';
 
 @Component({
   selector: 'app-dashboard',
   templateUrl: './dashboard.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, DetectionDetailsModalComponent, VehicleColorDistributionComponent, VehicleDistributionComponent, LoaderComponent],
+  imports: [CommonModule, DetectionDetailsModalComponent, LoaderComponent],
 })
 export class DashboardComponent {
   private lprDataService = inject(LprDataService);
@@ -20,43 +19,74 @@ export class DashboardComponent {
   kpis = toSignal(this.lprDataService.getKpis(), { initialValue: [] });
   cameras = toSignal(this.lprDataService.getCameras(), { initialValue: [] });
   carMakes = toSignal(this.lprDataService.getCarMakes(), { initialValue: [] });
-  
+
   // Filters
   plateTagSearch = signal('');
   selectedCamera = signal('All Cameras');
   selectedCarMake = signal('All Makes');
   dateRangeStart = signal('');
   dateRangeEnd = signal('');
-  
+
   // Modal state
   selectedDetection = signal<Detection | null>(null);
   loading = signal(false);
   searching = signal(false);
-  
+
   // Search state
   searchResults = signal<Detection[] | null>(null);
   isSearchMode = signal(false);
-  
+  hasPerformedSearch = signal(false);
+  searchTrigger = signal(0); // Increment this to trigger new searches
+
+  // Date validation state
+  showDateError = signal(false);
+  dateErrorMessage = signal('');
+
+  // Advanced filters state
+  showAdvancedFilters = signal(false);
+
   // Pagination
   currentPage = signal(1);
   itemsPerPage = signal(50);
 
-  private pageAndLimitAndFilters = computed(() => ({ 
-    page: this.currentPage(), 
+  private pageAndLimitAndFilters = computed(() => ({
+    page: this.currentPage(),
     limit: this.itemsPerPage(),
     camera: this.selectedCamera(),
-    carMake: this.selectedCarMake()
+    carMake: this.selectedCarMake(),
+    hasPerformedSearch: this.hasPerformedSearch(),
+    searchTrigger: this.searchTrigger()
   }));
 
   detectionsResponse = toSignal(
     toObservable(this.pageAndLimitAndFilters).pipe(
-      switchMap(({ page, limit, camera, carMake }) => {
-        if (this.isSearchMode()) {
-          // Don't fetch if in search mode, return empty array as observable
+      switchMap(({ page, limit, camera, carMake, hasPerformedSearch, searchTrigger }) => {
+        if (this.isSearchMode() || !hasPerformedSearch) {
+          // Don't fetch if in search mode or no search has been performed
           return of([]);
         }
+        const startDate = this.dateRangeStart();
+        const endDate = this.dateRangeEnd();
+
+        // Convert dates to Unix timestamps (milliseconds)
+        // Use UTC to ensure consistent date filtering regardless of timezone
+        const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
+        // For end date, use the start of the next day (which excludes the end date itself)
+        let endTimestamp = '';
+        if (endDate) {
+          const endDateObj = new Date(endDate + 'T00:00:00Z');
+          endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
+          endTimestamp = (endDateObj.getTime() - 1).toString(); // Subtract 1ms to stay within the selected end date
+        }
+
+        console.log('Getting detections with filters:', {
+          page, limit, camera, carMake,
+          startDate, endDate,
+          startTimestamp, endTimestamp,
+          searchTrigger
+        });
         this.loading.set(true);
-        return this.lprDataService.getDetections(page, limit, camera, carMake).pipe(
+        return this.lprDataService.getDetections(page, limit, camera, carMake, startTimestamp, endTimestamp).pipe(
           finalize(() => this.loading.set(false))
         );
       })
@@ -64,17 +94,59 @@ export class DashboardComponent {
     { initialValue: [] }
   );
 
-  private filtersForCount = computed(() => ({ 
-    camera: this.selectedCamera(), 
-    carMake: this.selectedCarMake() 
+  private filtersForCount = computed(() => ({
+    camera: this.selectedCamera(),
+    carMake: this.selectedCarMake(),
+    hasPerformedSearch: this.hasPerformedSearch(),
+    searchTrigger: this.searchTrigger()
   }));
 
-  totalItems = toSignal(
+  totalItems = computed(() => {
+    if (this.isSearchMode() && this.searchResults() !== null) {
+      // In search mode, count the filtered search results
+      return { total: this.filteredDetections().length };
+    } else if (this.hasPerformedSearch()) {
+      // In general filter mode, use the API count (this will be reactive to searchTrigger)
+      return this.apiTotalItems();
+    } else {
+      // No search performed yet
+      return { total: 0 };
+    }
+  });
+
+  private apiTotalItems = toSignal(
     toObservable(this.filtersForCount).pipe(
-      switchMap(({ camera, carMake }) => this.lprDataService.getDetectionsCount(camera, carMake))
+      switchMap(({ camera, carMake, hasPerformedSearch, searchTrigger }) => {
+        if (!hasPerformedSearch || this.isSearchMode()) {
+          return of({ total: 0 });
+        }
+        const startDate = this.dateRangeStart();
+        const endDate = this.dateRangeEnd();
+
+        // Convert dates to Unix timestamps (milliseconds)
+        // Use UTC to ensure consistent date filtering regardless of timezone
+        const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
+        // For end date, use the start of the next day (which excludes the end date itself)
+        let endTimestamp = '';
+        if (endDate) {
+          const endDateObj = new Date(endDate + 'T00:00:00Z');
+          endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
+          endTimestamp = (endDateObj.getTime() - 1).toString(); // Subtract 1ms to stay within the selected end date
+        }
+
+        console.log('Getting count with filters:', {
+          camera, carMake,
+          startDate, endDate,
+          startTimestamp, endTimestamp,
+          searchTrigger
+        });
+        return this.lprDataService.getDetectionsCount(camera, carMake, startTimestamp, endTimestamp);
+      })
     ),
     { initialValue: { total: 0 } }
   );
+
+  // Removed analytics API calls since visualizations are no longer displayed
 
   formatValue(value: string | null | undefined): string {
     if (value === null || value === undefined) {
@@ -126,6 +198,8 @@ export class DashboardComponent {
     return this.paginatedDetections();
   });
 
+  // Removed searchModeVisualizationData since visualizations are no longer displayed
+
   uniqueCameraNames = computed(() => {
     const allCameras = new Set(this.cameras());
     return ['All Cameras', ...Array.from(allCameras)];
@@ -136,28 +210,9 @@ export class DashboardComponent {
     return ['All Makes', ...Array.from(makeSet)];
   });
 
-  detectionsByCamera = computed(() => {
-    const counts = new Map<string, number>();
-    for (const det of this.filteredDetections()) {
-      const cameraName = this.formatValue(det.source.name);
-      counts.set(cameraName, (counts.get(cameraName) || 0) + 1);
-    }
+  // Removed detectionsByCamera and maxDetectionsByCamera since camera chart is no longer displayed
 
-    if (counts.size === 0) return [];
-
-    return Array.from(counts.entries())
-      .map(([camera, detections]) => ({
-        camera,
-        detections,
-      }))
-      .sort((a, b) => b.detections - a.detections);
-  });
-
-  maxDetectionsByCamera = computed(() => 
-    Math.max(...this.detectionsByCamera().map(c => c.detections), 0)
-  );
-
-  totalPages = computed(() => 
+  totalPages = computed(() =>
     Math.ceil(this.totalItems().total / this.itemsPerPage())
   );
 
@@ -172,6 +227,23 @@ export class DashboardComponent {
     const total = this.totalItems().total;
     const end = this.currentPage() * this.itemsPerPage();
     return end > total ? total : end;
+  });
+
+  // Format dates to mm-dd-yyyy for display
+  formattedDateRangeStart = computed(() => {
+    const date = this.dateRangeStart();
+    if (!date) return '';
+    // date is in yyyy-mm-dd format from input, convert to mm-dd-yyyy
+    const [year, month, day] = date.split('-');
+    return `${month}-${day}-${year}`;
+  });
+
+  formattedDateRangeEnd = computed(() => {
+    const date = this.dateRangeEnd();
+    if (!date) return '';
+    // date is in yyyy-mm-dd format from input, convert to mm-dd-yyyy
+    const [year, month, day] = date.split('-');
+    return `${month}-${day}-${year}`;
   });
 
   // Pagination methods
@@ -199,7 +271,7 @@ export class DashboardComponent {
     this.itemsPerPage.set(parseInt(select.value));
     this.currentPage.set(1); // Reset to first page when changing items per page
   }
-  
+
   onPlateTagChange(event: Event) {
     const input = event.target as HTMLInputElement;
     this.plateTagSearch.set(input.value);
@@ -230,10 +302,68 @@ export class DashboardComponent {
     const input = event.target as HTMLInputElement;
     if (type === 'start') {
       this.dateRangeStart.set(input.value);
+      // Clear end date if start date changes
+      if (this.dateRangeEnd()) {
+        this.dateRangeEnd.set('');
+      }
     } else {
+      // Validate end date selection
+      if (!this.dateRangeStart()) {
+        this.showDateErrorPopup('You must select a start date first before selecting an end date.');
+        input.value = '';
+        return;
+      }
+
+      const startDate = new Date(this.dateRangeStart());
+      const endDate = new Date(input.value);
+      const daysDifference = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (daysDifference > 90) {
+        this.showDateErrorPopup('Date range cannot exceed 90 days. Please select an end date within 90 days of the start date.');
+        input.value = '';
+        return;
+      }
+
+      if (endDate < startDate) {
+        this.showDateErrorPopup('End date cannot be earlier than the start date.');
+        input.value = '';
+        return;
+      }
+
       this.dateRangeEnd.set(input.value);
     }
     this.currentPage.set(1); // Reset to first page when filter changes
+  }
+
+  onEndDateClick(event: Event) {
+    if (!this.dateRangeStart()) {
+      event.preventDefault();
+      this.showDateErrorPopup('You must select a start date first before selecting an end date.');
+    }
+  }
+
+  getMaxEndDate(): string {
+    if (!this.dateRangeStart()) return '';
+
+    const startDate = new Date(this.dateRangeStart());
+    const maxDate = new Date(startDate);
+    maxDate.setDate(maxDate.getDate() + 90);
+
+    return maxDate.toISOString().split('T')[0];
+  }
+
+  showDateErrorPopup(message: string) {
+    this.dateErrorMessage.set(message);
+    this.showDateError.set(true);
+  }
+
+  closeDateError() {
+    this.showDateError.set(false);
+    this.dateErrorMessage.set('');
+  }
+
+  toggleAdvancedFilters() {
+    this.showAdvancedFilters.set(!this.showAdvancedFilters());
   }
 
   clearFilters(): void {
@@ -247,36 +377,95 @@ export class DashboardComponent {
 
   searchPlate(): void {
     const plateTag = this.plateTagSearch().trim();
-    
-    if (!plateTag) {
-      // If empty, clear search and return to normal mode
-      this.clearSearch();
+
+    if (plateTag) {
+      // If plate tag is provided, use plate search mode
+      this.searching.set(true);
+      this.isSearchMode.set(true);
+      this.searchResults.set(null);
+      this.hasPerformedSearch.set(true);
+
+      // Prepare filter parameters
+      const camera = this.selectedCamera();
+      const carMake = this.selectedCarMake();
+      const startDate = this.dateRangeStart();
+      const endDate = this.dateRangeEnd();
+
+      // Convert dates to Unix timestamps (milliseconds)
+      // Use UTC to ensure consistent date filtering regardless of timezone
+      const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
+      // For end date, use the start of the next day (which excludes the end date itself)
+      let endTimestamp = '';
+      if (endDate) {
+        const endDateObj = new Date(endDate + 'T00:00:00Z');
+        endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
+        endTimestamp = (endDateObj.getTime() - 1).toString(); // Subtract 1ms to stay within the selected end date
+      }
+
+      this.lprDataService.searchPlate(plateTag, camera, carMake, startTimestamp, endTimestamp).subscribe({
+        next: (detections) => {
+          this.searchResults.set(detections);
+          this.searching.set(false);
+        },
+        error: (error) => {
+          console.error('Error searching plate:', error);
+          this.searchResults.set([]);
+          this.searching.set(false);
+        }
+      });
+    } else {
+      // If no plate tag, perform general search with filters
+      this.performGeneralSearch();
+    }
+  }
+
+  performGeneralSearch(): void {
+    // Check if at least one filter is provided
+    const hasDateFilter = this.dateRangeStart() && this.dateRangeEnd();
+    const hasCameraFilter = this.selectedCamera() && this.selectedCamera() !== 'All Cameras';
+    const hasCarMakeFilter = this.selectedCarMake() && this.selectedCarMake() !== 'All Makes';
+
+    if (!hasDateFilter && !hasCameraFilter && !hasCarMakeFilter) {
+      this.showDateErrorPopup('Please select at least one filter before searching:\n• Date range (From Date + To Date)\n• Camera Name\n• Vehicle Make');
       return;
     }
 
-    this.searching.set(true);
-    this.isSearchMode.set(true);
+    this.isSearchMode.set(false);
     this.searchResults.set(null);
-
-    this.lprDataService.searchPlate(plateTag).subscribe({
-      next: (detections) => {
-        this.searchResults.set(detections);
-        this.searching.set(false);
-      },
-      error: (error) => {
-        console.error('Error searching plate:', error);
-        this.searchResults.set([]);
-        this.searching.set(false);
-      }
-    });
+    this.hasPerformedSearch.set(true);
+    this.currentPage.set(1); // Reset to first page
+    this.searchTrigger.set(this.searchTrigger() + 1); // Trigger new search
   }
 
   clearSearch(): void {
     this.isSearchMode.set(false);
     this.searchResults.set(null);
     this.plateTagSearch.set('');
+    this.dateRangeStart.set('');
+    this.dateRangeEnd.set('');
+    this.selectedCamera.set('All Cameras');
+    this.selectedCarMake.set('All Makes');
+    this.hasPerformedSearch.set(false);
     this.currentPage.set(1);
-    // Trigger refresh of detections
+  }
+
+  hasActiveFilters(): boolean {
+    const hasDateFilter = this.dateRangeStart() && this.dateRangeEnd();
+    const hasCameraFilter = this.selectedCamera() && this.selectedCamera() !== 'All Cameras';
+    const hasCarMakeFilter = this.selectedCarMake() && this.selectedCarMake() !== 'All Makes';
+
+    return (hasDateFilter || hasCameraFilter || hasCarMakeFilter) && this.hasPerformedSearch() && !this.isSearchMode();
+  }
+
+  clearAllFilters(): void {
+    this.plateTagSearch.set('');
+    this.dateRangeStart.set('');
+    this.dateRangeEnd.set('');
+    this.selectedCamera.set('All Cameras');
+    this.selectedCarMake.set('All Makes');
+    this.isSearchMode.set(false);
+    this.searchResults.set(null);
+    this.hasPerformedSearch.set(false);
     this.currentPage.set(1);
   }
 
@@ -286,21 +475,40 @@ export class DashboardComponent {
       return;
     }
 
-    const headers = ['Plate Tag', 'Camera', 'Timestamp', 'Vehicle Type', 'Vehicle Color', 'Latitude', 'Longitude'];
+    const headers = [
+      'Detection ID', 'Timestamp', 'Time of Day',
+      'Plate Tag', 'Plate Code',
+      'Source ID', 'Source Name', 'Source Type',
+      'Latitude', 'Longitude',
+      'Vehicle Make', 'Vehicle Type', 'Vehicle Color', 'Vehicle Orientation', 'Vehicle Bearing', 'Vehicle Occlusion',
+      'Image ID', 'Image Width', 'Image Height'
+    ];
     const csvRows = [headers.join(',')];
-    
+
     for (const det of detections) {
-        const timestamp = new Date(det.timestamp).toLocaleString();
-        const values = [
-            det.plate.tag,
-            det.source.name,
-            `"${timestamp}"`,
-            det.vehicle.type.name,
-            det.vehicle.color.code,
-            det.location.lat,
-            det.location.lon
-        ];
-        csvRows.push(values.join(','));
+      const timestamp = new Date(det.timestamp).toLocaleString();
+      const values = [
+        det.id || 'N/A',
+        `"${timestamp}"`,
+        det.timeOfDay || 'N/A',
+        det.plate?.tag || 'N/A',
+        det.plate?.code || 'N/A',
+        det.source?.id || 'N/A',
+        det.source?.name || 'N/A',
+        det.source?.type || 'N/A',
+        det.location?.lat || 'N/A',
+        det.location?.lon || 'N/A',
+        det.vehicle?.make?.name || 'N/A',
+        det.vehicle?.type?.name || 'N/A',
+        det.vehicle?.color?.code || 'N/A',
+        det.vehicle?.orientation?.name || 'N/A',
+        det.vehicle?.bearing || 'N/A',
+        det.vehicle?.occlusion || 'N/A',
+        det.image?.id || 'N/A',
+        det.image?.width || 'N/A',
+        det.image?.height || 'N/A',
+      ];
+      csvRows.push(values.join(','));
     }
 
     const csvString = csvRows.join('\n');
@@ -322,4 +530,6 @@ export class DashboardComponent {
   closeModal() {
     this.selectedDetection.set(null);
   }
+
+  // Removed chart visualization helper methods since charts are no longer displayed
 }

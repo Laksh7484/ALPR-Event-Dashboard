@@ -155,8 +155,8 @@ const CAR_MAKE_SOURCE_SQL = `
 function transformRowToDetection(row) {
   let metadata = {};
   try {
-    metadata = typeof row.metadata === 'string' 
-      ? JSON.parse(row.metadata) 
+    metadata = typeof row.metadata === 'string'
+      ? JSON.parse(row.metadata)
       : (row.metadata || {});
   } catch (error) {
     console.error('Error parsing metadata JSON:', error);
@@ -164,24 +164,24 @@ function transformRowToDetection(row) {
   }
 
   // Extract vehicle info from metadata - check multiple possible locations
-  const vehicleData = metadata.vehicle || metadata.vehicleData || 
-                     (metadata.attributes && metadata.attributes.vehicle) || null;
-  
+  const vehicleData = metadata.vehicle || metadata.vehicleData ||
+    (metadata.attributes && metadata.attributes.vehicle) || null;
+
   let vehicle = {
     bearing: 0,
     color: { code: 'unknown' },
     occlusion: 0,
     orientation: {
       code: 'unknown',
-    name: 'N/A'
+      name: 'N/A'
     },
     make: {
       code: 'unknown',
-    name: 'N/A'
+      name: 'N/A'
     },
     type: {
       code: 'unknown',
-    name: 'N/A'
+      name: 'N/A'
     }
   };
 
@@ -199,18 +199,18 @@ function transformRowToDetection(row) {
 
     // Extract orientation
     if (vehicleData.orientation) {
-      const orientationCode = typeof vehicleData.orientation === 'object' 
+      const orientationCode = typeof vehicleData.orientation === 'object'
         ? (vehicleData.orientation.code || vehicleData.orientation.name || 'unknown')
         : vehicleData.orientation;
-      
+
       vehicle.orientation = {
         code: orientationCode,
-        name: (typeof vehicleData.orientation === 'object' ? vehicleData.orientation.name : null) || 
-              (orientationCode === 'rear' ? 'Rear' : 
-               orientationCode === 'front' ? 'Front' :
-               orientationCode === 'side' ? 'Side' : 
-               orientationCode === 'back' ? 'Rear' :
-                   orientationCode === 'forward' ? 'Front' : 'N/A')
+        name: (typeof vehicleData.orientation === 'object' ? vehicleData.orientation.name : null) ||
+          (orientationCode === 'rear' ? 'Rear' :
+            orientationCode === 'front' ? 'Front' :
+              orientationCode === 'side' ? 'Side' :
+                orientationCode === 'back' ? 'Rear' :
+                  orientationCode === 'forward' ? 'Front' : 'N/A')
       };
     }
 
@@ -236,20 +236,20 @@ function transformRowToDetection(row) {
 
     // Extract type
     if (vehicleData.type) {
-      const typeCode = typeof vehicleData.type === 'object' 
+      const typeCode = typeof vehicleData.type === 'object'
         ? (vehicleData.type.code || vehicleData.type.name || 'unknown')
         : vehicleData.type;
-      
+
       vehicle.type = {
         code: typeCode,
-        name: (typeof vehicleData.type === 'object' ? vehicleData.type.name : null) || 
-              (typeCode === 'sedan' ? 'Sedan' :
-               typeCode === 'suv' ? 'SUV' :
-               typeCode === 'truck' ? 'Truck' :
-               typeCode === 'van' ? 'Van' : 
-               typeCode === 'car' ? 'Car' :
-               typeCode === 'motorcycle' ? 'Motorcycle' :
-                   typeCode === 'bus' ? 'Bus' : 'N/A')
+        name: (typeof vehicleData.type === 'object' ? vehicleData.type.name : null) ||
+          (typeCode === 'sedan' ? 'Sedan' :
+            typeCode === 'suv' ? 'SUV' :
+              typeCode === 'truck' ? 'Truck' :
+                typeCode === 'van' ? 'Van' :
+                  typeCode === 'car' ? 'Car' :
+                    typeCode === 'motorcycle' ? 'Motorcycle' :
+                      typeCode === 'bus' ? 'Bus' : 'N/A')
       };
     }
 
@@ -307,7 +307,11 @@ function transformRowToDetection(row) {
 // This must come BEFORE /api/detections to ensure proper route matching
 app.get('/api/detections/search', async (req, res) => {
   const plateTag = req.query.plateTag;
-  
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
+  const startTimestamp = req.query.startTimestamp;
+  const endTimestamp = req.query.endTimestamp;
+
   if (!plateTag || plateTag.trim() === '') {
     return res.status(400).json({ error: 'Plate tag is required' });
   }
@@ -316,9 +320,9 @@ app.get('/api/detections/search', async (req, res) => {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
-    
+
     // Search for plate tag (case-insensitive, partial match)
-    const query = `
+    let query = `
       SELECT 
         id,
         timestamp,
@@ -329,13 +333,52 @@ app.get('/api/detections/search', async (req, res) => {
         source_file
       FROM ${fullTableName}
       WHERE LOWER(plate_tag) LIKE LOWER($1)
-      ORDER BY timestamp DESC
-      LIMIT 100
     `;
 
-    const searchPattern = `%${plateTag.trim()}%`;
-    const result = await pool.query(query, [searchPattern]);
-    
+    const queryParams = [`%${plateTag.trim()}%`];
+    const whereConditions = [];
+
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+
+    // Add car make filter if provided (search in metadata JSON)
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+
+    // Add date range filter if provided
+    if (startTimestamp && startTimestamp.trim() !== '') {
+      const startTs = parseInt(startTimestamp, 10);
+      if (!isNaN(startTs)) {
+        whereConditions.push(`timestamp >= $${queryParams.length + 1}`);
+        queryParams.push(startTs);
+      }
+    }
+
+    if (endTimestamp && endTimestamp.trim() !== '') {
+      const endTs = parseInt(endTimestamp, 10);
+      if (!isNaN(endTs)) {
+        whereConditions.push(`timestamp <= $${queryParams.length + 1}`);
+        queryParams.push(endTs);
+      }
+    }
+
+    // Add additional WHERE conditions if we have any
+    if (whereConditions.length > 0) {
+      query += ` AND ${whereConditions.join(' AND ')}`;
+    }
+
+    query += ` ORDER BY timestamp DESC LIMIT 100`;
+
+    const result = await pool.query(query, queryParams);
+
     // Transform database rows to match Detection interface
     const detections = result.rows.map(row => transformRowToDetection(row));
 
@@ -346,11 +389,8 @@ app.get('/api/detections/search', async (req, res) => {
   }
 });
 
-// API endpoint to fetch ALPR events
-app.get('/api/detections', async (req, res) => {
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 50;
-  const offset = (page - 1) * limit;
+// API endpoint to get detection counts by camera (for visualization)
+app.get('/api/analytics/detections-by-camera', async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
 
@@ -358,7 +398,250 @@ app.get('/api/detections', async (req, res) => {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
-    
+
+    let query = `
+      SELECT 
+        camera_name,
+        COUNT(*) as detections
+      FROM ${fullTableName}
+    `;
+
+    const queryParams = [];
+    const whereConditions = [];
+
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+
+    // Add car make filter if provided
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+
+    // Add WHERE clause if we have any conditions
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    query += ` GROUP BY camera_name ORDER BY detections DESC`;
+
+    const result = await pool.query(query, queryParams);
+
+    const cameraStats = result.rows.map(row => ({
+      camera: row.camera_name || 'N/A',
+      detections: parseInt(row.detections, 10)
+    }));
+
+    res.json(cameraStats);
+  } catch (error) {
+    console.error('Error fetching camera detection counts:', error);
+    res.status(500).json({ error: 'Failed to fetch camera detection counts', message: error.message });
+  }
+});
+
+// API endpoint to get vehicle type distribution (for visualization)
+app.get('/api/analytics/vehicle-types', async (req, res) => {
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
+
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    let query = `
+      SELECT 
+        COALESCE(
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'type', 'name')), ''),
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'type', 'code')), ''),
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'type')), ''),
+          'Unknown'
+        ) as vehicle_type,
+        COUNT(*) as count
+      FROM ${fullTableName}
+    `;
+
+    const queryParams = [];
+    const whereConditions = [];
+
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+
+    // Add car make filter if provided
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+
+    // Add WHERE clause if we have any conditions
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    query += ` GROUP BY vehicle_type ORDER BY count DESC`;
+
+    const result = await pool.query(query, queryParams);
+
+    const typeStats = result.rows.map(row => ({
+      name: (row.vehicle_type && row.vehicle_type.trim() !== '') ? row.vehicle_type : 'N/A',
+      count: parseInt(row.count, 10)
+    }));
+
+    res.json(typeStats);
+  } catch (error) {
+    console.error('Error fetching vehicle type counts:', error);
+    res.status(500).json({ error: 'Failed to fetch vehicle type counts', message: error.message });
+  }
+});
+
+// API endpoint to get vehicle color distribution (for visualization)
+app.get('/api/analytics/vehicle-colors', async (req, res) => {
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
+
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    let query = `
+      SELECT 
+        COALESCE(
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'color', 'code')), ''),
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'color')), ''),
+          'unknown'
+        ) as vehicle_color,
+        COUNT(*) as count
+      FROM ${fullTableName}
+    `;
+
+    const queryParams = [];
+    const whereConditions = [];
+
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+
+    // Add car make filter if provided
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+
+    // Add WHERE clause if we have any conditions
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    query += ` GROUP BY vehicle_color ORDER BY count DESC`;
+
+    const result = await pool.query(query, queryParams);
+
+    const colorStats = result.rows.map(row => ({
+      name: (row.vehicle_color && row.vehicle_color.trim() !== '' && row.vehicle_color !== 'unknown') ? row.vehicle_color : 'N/A',
+      count: parseInt(row.count, 10)
+    }));
+
+    res.json(colorStats);
+  } catch (error) {
+    console.error('Error fetching vehicle color counts:', error);
+    res.status(500).json({ error: 'Failed to fetch vehicle color counts', message: error.message });
+  }
+});
+
+// API endpoint to get vehicle orientation distribution (for visualization)
+app.get('/api/analytics/vehicle-orientations', async (req, res) => {
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
+
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    let query = `
+      SELECT 
+        COALESCE(
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'orientation', 'name')), ''),
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'orientation', 'code')), ''),
+          NULLIF(btrim(jsonb_extract_path_text((metadata::jsonb), 'vehicle', 'orientation')), ''),
+          'Unknown'
+        ) as vehicle_orientation,
+        COUNT(*) as count
+      FROM ${fullTableName}
+    `;
+
+    const queryParams = [];
+    const whereConditions = [];
+
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+
+    // Add car make filter if provided
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+
+    // Add WHERE clause if we have any conditions
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    query += ` GROUP BY vehicle_orientation ORDER BY count DESC`;
+
+    const result = await pool.query(query, queryParams);
+
+    const orientationStats = result.rows.map(row => ({
+      name: (row.vehicle_orientation && row.vehicle_orientation.trim() !== '' && row.vehicle_orientation !== 'Unknown') ? row.vehicle_orientation : 'N/A',
+      count: parseInt(row.count, 10)
+    }));
+
+    res.json(orientationStats);
+  } catch (error) {
+    console.error('Error fetching vehicle orientation counts:', error);
+    res.status(500).json({ error: 'Failed to fetch vehicle orientation counts', message: error.message });
+  }
+});
+
+// API endpoint to fetch ALPR events
+app.get('/api/detections', async (req, res) => {
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 50;
+  const offset = (page - 1) * limit;
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
+  const startTimestamp = req.query.startTimestamp;
+  const endTimestamp = req.query.endTimestamp;
+
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
     let query = `
       SELECT 
         id,
@@ -370,16 +653,16 @@ app.get('/api/detections', async (req, res) => {
         source_file
       FROM ${fullTableName}
     `;
-    
+
     const queryParams = [];
     const whereConditions = [];
-    
+
     // Add camera filter if provided
     if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
       whereConditions.push(`camera_name = $${queryParams.length + 1}`);
       queryParams.push(cameraName);
     }
-    
+
     // Add car make filter if provided (search in metadata JSON)
     if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
       const normalizedCarMake = carMake.trim().toLowerCase();
@@ -388,17 +671,34 @@ app.get('/api/detections', async (req, res) => {
       whereConditions.push(makeCondition);
       queryParams.push(makeValue);
     }
-    
+
+    // Add date range filter if provided
+    if (startTimestamp && startTimestamp.trim() !== '') {
+      const startTs = parseInt(startTimestamp, 10);
+      if (!isNaN(startTs)) {
+        whereConditions.push(`timestamp >= $${queryParams.length + 1}`);
+        queryParams.push(startTs);
+      }
+    }
+
+    if (endTimestamp && endTimestamp.trim() !== '') {
+      const endTs = parseInt(endTimestamp, 10);
+      if (!isNaN(endTs)) {
+        whereConditions.push(`timestamp <= $${queryParams.length + 1}`);
+        queryParams.push(endTs);
+      }
+    }
+
     // Add WHERE clause if we have any conditions
     if (whereConditions.length > 0) {
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
-    
+
     query += ` ORDER BY timestamp DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
     queryParams.push(limit, offset);
 
     const result = await pool.query(query, queryParams);
-    
+
     // Transform database rows to match Detection interface
     const detections = result.rows.map(row => transformRowToDetection(row));
 
@@ -422,10 +722,10 @@ app.get('/api/cameras', async (req, res) => {
       WHERE camera_name IS NOT NULL
       ORDER BY camera_name ASC
     `;
-    
+
     const result = await pool.query(query);
     const cameras = result.rows.map(row => row.camera_name);
-    
+
     res.json(cameras);
   } catch (error) {
     console.error('Error fetching cameras:', error);
@@ -446,7 +746,7 @@ app.get('/api/car-makes', async (req, res) => {
       WHERE metadata IS NOT NULL
       ORDER BY raw_make ASC
     `;
-    
+
     const result = await pool.query(query);
     const makes = result.rows
       .map(row => row.raw_make)
@@ -461,7 +761,7 @@ app.get('/api/car-makes', async (req, res) => {
       })
       .filter((make, index, self) => self.indexOf(make) === index) // Remove duplicates
       .sort();
-    
+
     res.json(makes);
   } catch (error) {
     console.error('Error fetching car makes:', error);
@@ -473,7 +773,9 @@ app.get('/api/car-makes', async (req, res) => {
 app.get('/api/detections/count', async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
-  
+  const startTimestamp = req.query.startTimestamp;
+  const endTimestamp = req.query.endTimestamp;
+
   try {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
@@ -482,13 +784,13 @@ app.get('/api/detections/count', async (req, res) => {
     let query = `SELECT COUNT(*) FROM ${fullTableName}`;
     const queryParams = [];
     const whereConditions = [];
-    
+
     // Add camera filter if provided
     if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
       whereConditions.push(`camera_name = $${queryParams.length + 1}`);
       queryParams.push(cameraName);
     }
-    
+
     // Add car make filter if provided
     if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
       const normalizedCarMake = carMake.trim().toLowerCase();
@@ -497,14 +799,31 @@ app.get('/api/detections/count', async (req, res) => {
       whereConditions.push(makeCondition);
       queryParams.push(makeValue);
     }
-    
+
+    // Add date range filter if provided
+    if (startTimestamp && startTimestamp.trim() !== '') {
+      const startTs = parseInt(startTimestamp, 10);
+      if (!isNaN(startTs)) {
+        whereConditions.push(`timestamp >= $${queryParams.length + 1}`);
+        queryParams.push(startTs);
+      }
+    }
+
+    if (endTimestamp && endTimestamp.trim() !== '') {
+      const endTs = parseInt(endTimestamp, 10);
+      if (!isNaN(endTs)) {
+        whereConditions.push(`timestamp <= $${queryParams.length + 1}`);
+        queryParams.push(endTs);
+      }
+    }
+
     // Add WHERE clause if we have any conditions
     if (whereConditions.length > 0) {
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
-    
+
     const result = await pool.query(query, queryParams);
-    
+
     res.json({ total: parseInt(result.rows[0].count, 10) });
 
   } catch (err) {
