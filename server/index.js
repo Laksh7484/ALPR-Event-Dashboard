@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import { Pool } from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+import session from 'express-session';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,8 +18,21 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json());
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key-change-this',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  }
+}));
 
 // PostgreSQL connection pool
 const dbConfig = {
@@ -48,6 +64,497 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
   process.exit(-1);
 });
+
+// Email transporter configuration
+const emailTransporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.mailgun.org',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false, // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER || 'postmaster@your-domain.mailgun.org',
+    pass: process.env.SMTP_PASS || 'your-mailgun-smtp-password'
+  }
+});
+
+// Verify email configuration on startup
+emailTransporter.verify((error, success) => {
+  if (error) {
+    console.error('Email transporter configuration error:', error);
+  } else {
+    console.log('Email server is ready to send messages');
+  }
+});
+
+// Initialize database tables
+async function initializeDatabase() {
+  try {
+    // Create users table in alpr_data schema
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS alpr_data.users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP
+      )
+    `);
+
+    // Create OTP tokens table in alpr_data schema
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS alpr_data.otp_tokens (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) NOT NULL,
+        otp_code VARCHAR(6) NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        verified BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create user sessions table in alpr_data schema
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS alpr_data.user_sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES alpr_data.users(id) ON DELETE CASCADE,
+        session_token VARCHAR(255) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create indexes
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_email ON alpr_data.otp_tokens(email)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_expires_at ON alpr_data.otp_tokens(expires_at)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON alpr_data.user_sessions(session_token)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON alpr_data.user_sessions(expires_at)`);
+
+    console.log('Database tables initialized successfully in alpr_data schema');
+  } catch (error) {
+    console.error('Error initializing database tables:', error);
+  }
+}
+
+// Helper function to generate 6-digit OTP
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Helper function to generate session token
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Helper function to send OTP email
+async function sendOTPEmail(email, otp) {
+  const mailOptions = {
+    from: process.env.SMTP_FROM || 'support@mail.platesmart.net',
+    to: email,
+    subject: 'Your Login OTP - ALPR Dashboard',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+          }
+          .email-wrapper {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 30px;
+            text-align: center;
+          }
+          .header h1 {
+            color: white;
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+          }
+          .header p {
+            color: rgba(255, 255, 255, 0.9);
+            margin: 10px 0 0 0;
+            font-size: 16px;
+          }
+          .content {
+            padding: 40px 30px;
+            background: white;
+          }
+          .otp-section {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            margin: 30px 0;
+          }
+          .otp-label {
+            color: #666;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+          }
+          .otp-code {
+            font-size: 48px;
+            font-weight: bold;
+            letter-spacing: 12px;
+            color: #667eea;
+            margin: 15px 0;
+            text-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+          }
+          .otp-validity {
+            color: #888;
+            font-size: 14px;
+            margin-top: 15px;
+          }
+          .instructions {
+            color: #555;
+            font-size: 16px;
+            line-height: 1.8;
+            margin: 20px 0;
+            text-align: center;
+          }
+          .footer {
+            background: #f8f9fa;
+            padding: 30px;
+            text-align: center;
+            border-top: 1px solid #e0e0e0;
+          }
+          .footer p {
+            margin: 8px 0;
+            font-size: 13px;
+            color: #888;
+          }
+          .security-note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .security-note p {
+            margin: 0;
+            color: #856404;
+            font-size: 14px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="email-wrapper">
+          <div class="header">
+            <h1 style="color: #ffffffff;">ALPR Dashboard</h1>
+            <p style="color: #ffffffff;">Secure Login Verification</p>
+          </div>
+          <div class="content">
+            <p class="instructions">
+              You've requested to log in to your ALPR Dashboard. Use the verification code below to complete your login:
+            </p>
+            <div class="otp-section">
+              <div class="otp-label">Your Verification Code</div>
+              <div class="otp-code">${otp}</div>
+              <div class="otp-validity">Valid for 5 minutes</div>
+            </div>
+            <p class="instructions">
+              Enter this code on the login page to access your dashboard.
+            </p>
+          </div>
+          <div class="footer">
+            <p>This is an automated message from ALPR Dashboard</p>
+            <p>Please do not reply to this email</p>
+            <p style="margin-top: 15px; color: #aaa; font-size: 12px;">© 2025 ALPR Dashboard. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  };
+
+  try {
+    await emailTransporter.sendMail(mailOptions);
+    return true;
+  } catch (error) {
+    console.error('Error sending email:', error);
+    return false;
+  }
+}
+
+// Authentication middleware
+async function authenticateSession(req, res, next) {
+  const sessionToken = req.headers.authorization?.replace('Bearer ', '');
+
+  if (!sessionToken) {
+    return res.status(401).json({ error: 'No session token provided' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT us.*, u.email, u.name 
+       FROM alpr_data.user_sessions us
+       JOIN alpr_data.users u ON us.user_id = u.id
+       WHERE us.session_token = $1 AND us.expires_at > NOW()`,
+      [sessionToken]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    req.user = result.rows[0];
+    next();
+  } catch (error) {
+    console.error('Error authenticating session:', error);
+    res.status(500).json({ error: 'Authentication error' });
+  }
+}
+
+// ==================== AUTHENTICATION ROUTES ====================
+
+// Check if user exists
+app.post('/api/auth/check-user', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT id, email, name FROM alpr_data.users WHERE email = $1',
+      [email.toLowerCase().trim()]
+    );
+
+    res.json({
+      exists: result.rows.length > 0,
+      user: result.rows.length > 0 ? result.rows[0] : null
+    });
+  } catch (error) {
+    console.error('Error checking user:', error);
+    res.status(500).json({ error: 'Failed to check user' });
+  }
+});
+
+// Send OTP
+app.post('/api/auth/send-otp', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const otp = generateOTP();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+  try {
+    // Delete old OTPs for this email
+    await pool.query('DELETE FROM alpr_data.otp_tokens WHERE email = $1', [normalizedEmail]);
+
+    // Insert new OTP
+    await pool.query(
+      'INSERT INTO alpr_data.otp_tokens (email, otp_code, expires_at) VALUES ($1, $2, $3)',
+      [normalizedEmail, otp, expiresAt]
+    );
+
+    // Send email
+    const emailSent = await sendOTPEmail(normalizedEmail, otp);
+
+    if (!emailSent) {
+      return res.status(500).json({ error: 'Failed to send OTP email' });
+    }
+
+    res.json({
+      success: true,
+      message: 'OTP sent to your email',
+      expiresAt: expiresAt.toISOString()
+    });
+  } catch (error) {
+    console.error('Error sending OTP:', error);
+    res.status(500).json({ error: 'Failed to send OTP' });
+  }
+});
+
+// Verify OTP and create session
+app.post('/api/auth/verify-otp', async (req, res) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP are required' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  try {
+    // Check if OTP is valid
+    const otpResult = await pool.query(
+      `SELECT * FROM alpr_data.otp_tokens 
+       WHERE email = $1 AND otp_code = $2 AND expires_at > NOW() AND verified = FALSE
+       ORDER BY created_at DESC LIMIT 1`,
+      [normalizedEmail, otp.trim()]
+    );
+
+    if (otpResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired OTP' });
+    }
+
+    // Mark OTP as verified
+    await pool.query(
+      'UPDATE alpr_data.otp_tokens SET verified = TRUE WHERE id = $1',
+      [otpResult.rows[0].id]
+    );
+
+    // Check if user exists
+    const userResult = await pool.query(
+      'SELECT * FROM alpr_data.users WHERE email = $1',
+      [normalizedEmail]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'User not found. Please sign up first.',
+        requiresSignup: true
+      });
+    }
+
+    const user = userResult.rows[0];
+
+    // Update last login
+    await pool.query(
+      'UPDATE alpr_data.users SET last_login = NOW() WHERE id = $1',
+      [user.id]
+    );
+
+    // Create session
+    const sessionToken = generateSessionToken();
+    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await pool.query(
+      'INSERT INTO alpr_data.user_sessions (user_id, session_token, expires_at) VALUES ($1, $2, $3)',
+      [user.id, sessionToken, sessionExpiresAt]
+    );
+
+    res.json({
+      success: true,
+      sessionToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name
+      }
+    });
+  } catch (error) {
+    console.error('Error verifying OTP:', error);
+    res.status(500).json({ error: 'Failed to verify OTP' });
+  }
+});
+
+// Signup new user
+app.post('/api/auth/signup', async (req, res) => {
+  const { email, name, otp } = req.body;
+
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP are required' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  try {
+    // Verify OTP first
+    const otpResult = await pool.query(
+      `SELECT * FROM alpr_data.otp_tokens 
+       WHERE email = $1 AND otp_code = $2 AND expires_at > NOW() AND verified = FALSE
+       ORDER BY created_at DESC LIMIT 1`,
+      [normalizedEmail, otp.trim()]
+    );
+
+    if (otpResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired OTP' });
+    }
+
+    // Mark OTP as verified
+    await pool.query(
+      'UPDATE alpr_data.otp_tokens SET verified = TRUE WHERE id = $1',
+      [otpResult.rows[0].id]
+    );
+
+    // Check if user already exists
+    const existingUser = await pool.query(
+      'SELECT id FROM alpr_data.users WHERE email = $1',
+      [normalizedEmail]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+
+    // Create new user
+    const userResult = await pool.query(
+      'INSERT INTO alpr_data.users (email, name, last_login) VALUES ($1, $2, NOW()) RETURNING *',
+      [normalizedEmail, name || null]
+    );
+
+    const user = userResult.rows[0];
+
+    // Create session
+    const sessionToken = generateSessionToken();
+    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await pool.query(
+      'INSERT INTO alpr_data.user_sessions (user_id, session_token, expires_at) VALUES ($1, $2, $3)',
+      [user.id, sessionToken, sessionExpiresAt]
+    );
+
+    res.json({
+      success: true,
+      sessionToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name
+      }
+    });
+  } catch (error) {
+    console.error('Error signing up user:', error);
+    res.status(500).json({ error: 'Failed to sign up' });
+  }
+});
+
+// Get current session
+app.get('/api/auth/session', authenticateSession, async (req, res) => {
+  res.json({
+    user: {
+      id: req.user.id,
+      email: req.user.email,
+      name: req.user.name
+    }
+  });
+});
+
+// Logout
+app.post('/api/auth/logout', authenticateSession, async (req, res) => {
+  const sessionToken = req.headers.authorization?.replace('Bearer ', '');
+
+  try {
+    await pool.query('DELETE FROM alpr_data.user_sessions WHERE session_token = $1', [sessionToken]);
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Error logging out:', error);
+    res.status(500).json({ error: 'Failed to logout' });
+  }
+});
+
+// ==================== EXISTING ALPR ROUTES ====================
 
 // Helper function to sanitize table/schema names
 function sanitizeIdentifier(identifier) {
@@ -305,7 +812,7 @@ function transformRowToDetection(row) {
 
 // API endpoint to search for a plate tag across all records
 // This must come BEFORE /api/detections to ensure proper route matching
-app.get('/api/detections/search', async (req, res) => {
+app.get('/api/detections/search', authenticateSession, async (req, res) => {
   const plateTag = req.query.plateTag;
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
@@ -390,7 +897,7 @@ app.get('/api/detections/search', async (req, res) => {
 });
 
 // API endpoint to get detection counts by camera (for visualization)
-app.get('/api/analytics/detections-by-camera', async (req, res) => {
+app.get('/api/analytics/detections-by-camera', authenticateSession, async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
 
@@ -446,7 +953,7 @@ app.get('/api/analytics/detections-by-camera', async (req, res) => {
 });
 
 // API endpoint to get vehicle type distribution (for visualization)
-app.get('/api/analytics/vehicle-types', async (req, res) => {
+app.get('/api/analytics/vehicle-types', authenticateSession, async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
 
@@ -507,7 +1014,7 @@ app.get('/api/analytics/vehicle-types', async (req, res) => {
 });
 
 // API endpoint to get vehicle color distribution (for visualization)
-app.get('/api/analytics/vehicle-colors', async (req, res) => {
+app.get('/api/analytics/vehicle-colors', authenticateSession, async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
 
@@ -567,7 +1074,7 @@ app.get('/api/analytics/vehicle-colors', async (req, res) => {
 });
 
 // API endpoint to get vehicle orientation distribution (for visualization)
-app.get('/api/analytics/vehicle-orientations', async (req, res) => {
+app.get('/api/analytics/vehicle-orientations', authenticateSession, async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
 
@@ -628,7 +1135,7 @@ app.get('/api/analytics/vehicle-orientations', async (req, res) => {
 });
 
 // API endpoint to fetch ALPR events
-app.get('/api/detections', async (req, res) => {
+app.get('/api/detections', authenticateSession, async (req, res) => {
   const page = parseInt(req.query.page, 10) || 1;
   const limit = parseInt(req.query.limit, 10) || 50;
   const offset = (page - 1) * limit;
@@ -710,7 +1217,7 @@ app.get('/api/detections', async (req, res) => {
 });
 
 // API endpoint to get all unique camera names
-app.get('/api/cameras', async (req, res) => {
+app.get('/api/cameras', authenticateSession, async (req, res) => {
   try {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
@@ -734,7 +1241,7 @@ app.get('/api/cameras', async (req, res) => {
 });
 
 // API endpoint to get all unique car makes from metadata
-app.get('/api/car-makes', async (req, res) => {
+app.get('/api/car-makes', authenticateSession, async (req, res) => {
   try {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
@@ -770,7 +1277,7 @@ app.get('/api/car-makes', async (req, res) => {
 });
 
 // API endpoint to get total detection count
-app.get('/api/detections/count', async (req, res) => {
+app.get('/api/detections/count', authenticateSession, async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
   const startTimestamp = req.query.startTimestamp;
@@ -833,7 +1340,7 @@ app.get('/api/detections/count', async (req, res) => {
 });
 
 // API endpoint to get KPIs
-app.get('/api/kpis', async (req, res) => {
+app.get('/api/kpis', authenticateSession, async (req, res) => {
   try {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
@@ -888,6 +1395,7 @@ async function testDatabaseConnection() {
   try {
     const result = await pool.query('SELECT NOW()');
     console.log('Database connection successful. Server time:', result.rows[0].now);
+    await initializeDatabase();
   } catch (error) {
     console.error('Database connection failed:', error.message);
     console.error('Make sure your PostgreSQL database is running and .env file is configured correctly.');
@@ -898,4 +1406,3 @@ app.listen(PORT, async () => {
   console.log(`Server is running on http://localhost:${PORT}`);
   await testDatabaseConnection();
 });
-
