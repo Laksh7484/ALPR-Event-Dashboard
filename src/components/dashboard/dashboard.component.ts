@@ -167,6 +167,34 @@ export class DashboardComponent {
     return this.formatValue(value).toLowerCase();
   }
 
+  // Converts IST timestamp to EST and formats as 'MM/dd/yyyy, h:mm:ss a'
+  formatTimestampToEST(timestamp: string | number | Date): string {
+    if (!timestamp) return 'N/A';
+    try {
+      // Parse the input timestamp (assume it's in IST)
+      const istDate = new Date(timestamp);
+      // IST is UTC+5:30, EST is UTC-5:00 (difference = 10.5 hours)
+      // Convert IST to UTC, then subtract 5 hours to get EST
+      // So IST - 10.5 hours = EST
+      const estTime = istDate.getTime() - (10.5 * 60 * 60 * 1000);
+      const estDate = new Date(estTime);
+      // Format as MM/dd/yyyy, h:mm:ss a
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const month = pad(estDate.getMonth() + 1);
+      const day = pad(estDate.getDate());
+      const year = estDate.getFullYear();
+      let hour = estDate.getHours();
+      const minute = pad(estDate.getMinutes());
+      const second = pad(estDate.getSeconds());
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      hour = hour % 12;
+      if (hour === 0) hour = 12;
+      return `${month}/${day}/${year}, ${hour}:${minute}:${second} ${ampm}`;
+    } catch {
+      return 'N/A';
+    }
+  }
+
   constructor() {
     effect(() => {
       console.log('Detections Response:', this.detectionsResponse());
