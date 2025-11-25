@@ -1,7 +1,9 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { LprDataService, Detection, DetectionsResponse } from '../../services/lpr-data.service';
+import { AuthService } from '../../services/auth.service';
 import { switchMap, finalize, of } from 'rxjs';
 import { DetectionDetailsModalComponent } from '../detection-details-modal/detection-details-modal.component';
 // Removed unused visualization component imports
@@ -15,6 +17,10 @@ import { LoaderComponent } from '../loader/loader.component';
 })
 export class DashboardComponent {
   private lprDataService = inject(LprDataService);
+  private authService = inject(AuthService);
+  private router = inject(Router);
+
+  currentUser = this.authService.getCurrentUser();
 
   kpis = toSignal(this.lprDataService.getKpis(), { initialValue: [] });
   cameras = toSignal(this.lprDataService.getCameras(), { initialValue: [] });
@@ -557,6 +563,18 @@ export class DashboardComponent {
 
   closeModal() {
     this.selectedDetection.set(null);
+  }
+
+  logout() {
+    this.authService.logout().subscribe({
+      next: () => {
+        this.router.navigate(['/login']);
+      },
+      error: () => {
+        // Even if logout fails, redirect to login
+        this.router.navigate(['/login']);
+      }
+    });
   }
 
   // Removed chart visualization helper methods since charts are no longer displayed
