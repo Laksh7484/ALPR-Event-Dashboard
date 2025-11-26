@@ -1,10 +1,10 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { CacheService } from './cache.service';
 
-const API_BASE_URL = 'http://170.62.103.76:3001/api';
+const API_BASE_URL = 'https://solenoidally-polygenistic-billi.ngrok-free.dev/api';
 
 export interface Kpi {
   title: string;
@@ -73,6 +73,20 @@ export interface Detection {
 export class LprDataService {
   constructor(private http: HttpClient, private cacheService: CacheService) { }
 
+  private getHeaders(): HttpHeaders {
+    const token = localStorage.getItem('alpr_session_token');
+    const headers: any = {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true'
+    };
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    return new HttpHeaders(headers);
+  }
+
   getKpis(): Observable<Kpi[]> {
     const cacheKey = 'kpis';
     const cached = this.cacheService.get<Kpi[]>(cacheKey);
@@ -83,8 +97,8 @@ export class LprDataService {
     }
 
     console.log('Fetching KPIs from API');
-    return this.http.get<Kpi[]>(`${API_BASE_URL}/kpis`).pipe(
-      tap(data => this.cacheService.set(cacheKey, data, 30)) // Cache for 30 minutes
+    return this.http.get<Kpi[]>(`${API_BASE_URL}/kpis`, { headers: this.getHeaders() }).pipe(
+      tap(data => this.cacheService.set(cacheKey, data, 30))
     );
   }
 
@@ -104,7 +118,7 @@ export class LprDataService {
     if (endTimestamp) {
       url += `&endTimestamp=${encodeURIComponent(endTimestamp)}`;
     }
-    return this.http.get<Detection[]>(url);
+    return this.http.get<Detection[]>(url, { headers: this.getHeaders() });
   }
 
   getDetectionsCount(cameraName?: string, carMake?: string, startTimestamp?: string, endTimestamp?: string): Observable<{ total: number }> {
@@ -124,7 +138,7 @@ export class LprDataService {
       params.push(`endTimestamp=${encodeURIComponent(endTimestamp)}`);
     }
     const queryString = params.length > 0 ? `?${params.join('&')}` : '';
-    return this.http.get<{ total: number }>(`${API_BASE_URL}/detections/count${queryString}`);
+    return this.http.get<{ total: number }>(`${API_BASE_URL}/detections/count${queryString}`, { headers: this.getHeaders() });
   }
 
   getCameras(): Observable<string[]> {
@@ -137,8 +151,8 @@ export class LprDataService {
     }
 
     console.log('Fetching cameras from API');
-    return this.http.get<string[]>(`${API_BASE_URL}/cameras`).pipe(
-      tap(data => this.cacheService.set(cacheKey, data, 60)) // Cache for 60 minutes
+    return this.http.get<string[]>(`${API_BASE_URL}/cameras`, { headers: this.getHeaders() }).pipe(
+      tap(data => this.cacheService.set(cacheKey, data, 60))
     );
   }
 
@@ -152,8 +166,8 @@ export class LprDataService {
     }
 
     console.log('Fetching car makes from API');
-    return this.http.get<string[]>(`${API_BASE_URL}/car-makes`).pipe(
-      tap(data => this.cacheService.set(cacheKey, data, 60)) // Cache for 60 minutes
+    return this.http.get<string[]>(`${API_BASE_URL}/car-makes`, { headers: this.getHeaders() }).pipe(
+      tap(data => this.cacheService.set(cacheKey, data, 60))
     );
   }
 
@@ -173,10 +187,9 @@ export class LprDataService {
     if (endTimestamp) {
       url += `&endTimestamp=${encodeURIComponent(endTimestamp)}`;
     }
-    return this.http.get<Detection[]>(url);
+    return this.http.get<Detection[]>(url, { headers: this.getHeaders() });
   }
 
-  // Analytics endpoints for visualizations (count-based, not full data)
   getDetectionsByCamera(cameraName?: string, carMake?: string): Observable<{ camera: string, detections: number }[]> {
     const cacheKey = `detections-by-camera-${cameraName || 'all'}-${carMake || 'all'}`;
     const cached = this.cacheService.get<{ camera: string, detections: number }[]>(cacheKey);
@@ -198,8 +211,8 @@ export class LprDataService {
     const queryString = params.length > 0 ? `?${params.join('&')}` : '';
 
     console.log('Fetching detections by camera from API');
-    return this.http.get<{ camera: string, detections: number }[]>(`${API_BASE_URL}/analytics/detections-by-camera${queryString}`).pipe(
-      tap(data => this.cacheService.set(cacheKey, data, 10)) // Cache for 10 minutes
+    return this.http.get<{ camera: string, detections: number }[]>(`${API_BASE_URL}/analytics/detections-by-camera${queryString}`, { headers: this.getHeaders() }).pipe(
+      tap(data => this.cacheService.set(cacheKey, data, 10))
     );
   }
 
@@ -224,8 +237,8 @@ export class LprDataService {
     const queryString = params.length > 0 ? `?${params.join('&')}` : '';
 
     console.log('Fetching vehicle types from API');
-    return this.http.get<{ name: string, count: number }[]>(`${API_BASE_URL}/analytics/vehicle-types${queryString}`).pipe(
-      tap(data => this.cacheService.set(cacheKey, data, 10)) // Cache for 10 minutes
+    return this.http.get<{ name: string, count: number }[]>(`${API_BASE_URL}/analytics/vehicle-types${queryString}`, { headers: this.getHeaders() }).pipe(
+      tap(data => this.cacheService.set(cacheKey, data, 10))
     );
   }
 
@@ -250,8 +263,8 @@ export class LprDataService {
     const queryString = params.length > 0 ? `?${params.join('&')}` : '';
 
     console.log('Fetching vehicle colors from API');
-    return this.http.get<{ name: string, count: number }[]>(`${API_BASE_URL}/analytics/vehicle-colors${queryString}`).pipe(
-      tap(data => this.cacheService.set(cacheKey, data, 10)) // Cache for 10 minutes
+    return this.http.get<{ name: string, count: number }[]>(`${API_BASE_URL}/analytics/vehicle-colors${queryString}`, { headers: this.getHeaders() }).pipe(
+      tap(data => this.cacheService.set(cacheKey, data, 10))
     );
   }
 
@@ -276,8 +289,8 @@ export class LprDataService {
     const queryString = params.length > 0 ? `?${params.join('&')}` : '';
 
     console.log('Fetching vehicle orientations from API');
-    return this.http.get<{ name: string, count: number }[]>(`${API_BASE_URL}/analytics/vehicle-orientations${queryString}`).pipe(
-      tap(data => this.cacheService.set(cacheKey, data, 10)) // Cache for 10 minutes
+    return this.http.get<{ name: string, count: number }[]>(`${API_BASE_URL}/analytics/vehicle-orientations${queryString}`, { headers: this.getHeaders() }).pipe(
+      tap(data => this.cacheService.set(cacheKey, data, 10))
     );
   }
 

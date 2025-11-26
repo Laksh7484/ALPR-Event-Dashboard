@@ -27,7 +27,7 @@ export interface CheckUserResponse {
   providedIn: 'root'
 })
 export class AuthService {
-  private apiUrl = 'http://170.62.103.76:3001/api';
+  private apiUrl = 'https://solenoidally-polygenistic-billi.ngrok-free.dev/api';
   private sessionTokenKey = 'alpr_session_token';
   private userSubject = new BehaviorSubject<User | null>(this.getStoredUser());
 
@@ -49,13 +49,16 @@ export class AuthService {
 
   private getHeaders(): HttpHeaders {
     const token = this.getSessionToken();
+    const headers: any = {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true'
+    };
+
     if (token) {
-      return new HttpHeaders({
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      });
+      headers['Authorization'] = `Bearer ${token}`;
     }
-    return new HttpHeaders({ 'Content-Type': 'application/json' });
+
+    return new HttpHeaders(headers);
   }
 
   private getSessionToken(): string | null {
