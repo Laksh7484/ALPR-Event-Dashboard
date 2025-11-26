@@ -27,7 +27,7 @@ export interface CheckUserResponse {
   providedIn: 'root'
 })
 export class AuthService {
-  private apiUrl = 'https://blue-mirrors-double.loca.lt/api';
+  private apiUrl = 'http://170.62.103.76:3001/api';
   private sessionTokenKey = 'alpr_session_token';
   private userSubject = new BehaviorSubject<User | null>(this.getStoredUser());
 
