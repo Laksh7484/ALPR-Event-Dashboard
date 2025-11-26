@@ -203,6 +203,7 @@ export class DashboardComponent {
 
   constructor() {
     effect(() => {
+      console.log('Detections Response:', this.detectionsResponse());
       console.log('Total Items:', this.totalItems());
     });
   }

@@ -4,7 +4,7 @@ import { Observable, of } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { CacheService } from './cache.service';
 
-const API_BASE_URL = 'http://170.62.103.76:3001/api';
+const API_BASE_URL = 'http://localhost:3001/api';
 
 export interface Kpi {
   title: string;
