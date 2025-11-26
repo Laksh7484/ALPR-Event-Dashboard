@@ -338,7 +338,6 @@ app.post('/api/auth/check-user', async (req, res) => {
 
     res.json({
       exists: result.rows.length > 0,
-      user: result.rows.length > 0 ? result.rows[0] : null
     });
   } catch (error) {
     console.error('Error checking user:', error);
@@ -397,11 +396,14 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   try {
-    // Check if OTP is valid
-    // TEMPORARY: Removed expiry check for testing timezone issues
+    // Check if OTP is valid (using UTC timestamps for timezone-independent comparison)
     const otpResult = await pool.query(
-      `SELECT * FROM alpr_data.otp_tokens 
+      `SELECT *, 
+       expires_at AT TIME ZONE 'UTC' as expires_at_utc,
+       CURRENT_TIMESTAMP AT TIME ZONE 'UTC' as current_time_utc
+       FROM alpr_data.otp_tokens 
        WHERE email = $1 AND otp_code = $2 
+       AND expires_at AT TIME ZONE 'UTC' > CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
        AND verified = FALSE
        ORDER BY created_at DESC LIMIT 1`,
       [normalizedEmail, otp.trim()]
@@ -411,9 +413,10 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     if (otpResult.rows.length === 0) {
       // Check if OTP exists but is expired
       const expiredOtpCheck = await pool.query(
-        `SELECT otp_code, expires_at, 
-         (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') as current_time,
-         (expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')) as is_valid
+        `SELECT otp_code, 
+         expires_at AT TIME ZONE 'UTC' as expires_at_utc,
+         CURRENT_TIMESTAMP AT TIME ZONE 'UTC' as current_time_utc,
+         (expires_at AT TIME ZONE 'UTC' > CURRENT_TIMESTAMP AT TIME ZONE 'UTC') as is_valid
          FROM alpr_data.otp_tokens 
          WHERE email = $1 AND otp_code = $2 AND verified = FALSE
          ORDER BY created_at DESC LIMIT 1`,
@@ -422,12 +425,13 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 
       if (expiredOtpCheck.rows.length > 0) {
         const otpData = expiredOtpCheck.rows[0];
-        console.log('OTP Debug Info:', {
+        console.log('OTP Debug Info (UTC):', {
           email: normalizedEmail,
           otp: otp.trim(),
-          expires_at: otpData.expires_at,
-          current_time: otpData.current_time,
-          is_valid: otpData.is_valid
+          expires_at_utc: otpData.expires_at_utc,
+          current_time_utc: otpData.current_time_utc,
+          is_valid: otpData.is_valid,
+          time_diff_seconds: (new Date(otpData.expires_at_utc) - new Date(otpData.current_time_utc)) / 1000
         });
       }
 
@@ -496,11 +500,14 @@ app.post('/api/auth/signup', async (req, res) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   try {
-    // Verify OTP first
-    // TEMPORARY: Removed expiry check for testing timezone issues
+    // Verify OTP first (using UTC timestamps for timezone-independent comparison)
     const otpResult = await pool.query(
-      `SELECT * FROM alpr_data.otp_tokens 
+      `SELECT *, 
+       expires_at AT TIME ZONE 'UTC' as expires_at_utc,
+       CURRENT_TIMESTAMP AT TIME ZONE 'UTC' as current_time_utc
+       FROM alpr_data.otp_tokens 
        WHERE email = $1 AND otp_code = $2 
+       AND expires_at AT TIME ZONE 'UTC' > CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
        AND verified = FALSE
        ORDER BY created_at DESC LIMIT 1`,
       [normalizedEmail, otp.trim()]
