@@ -396,45 +396,35 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   try {
-    // Check if OTP is valid (using UTC timestamps for timezone-independent comparison)
+    // Get the OTP without time filtering (we'll check expiry in JavaScript)
     const otpResult = await pool.query(
-      `SELECT *, 
-       expires_at AT TIME ZONE 'UTC' as expires_at_utc,
-       CURRENT_TIMESTAMP AT TIME ZONE 'UTC' as current_time_utc
-       FROM alpr_data.otp_tokens 
+      `SELECT * FROM alpr_data.otp_tokens 
        WHERE email = $1 AND otp_code = $2 
-       AND expires_at AT TIME ZONE 'UTC' > CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
        AND verified = FALSE
        ORDER BY created_at DESC LIMIT 1`,
       [normalizedEmail, otp.trim()]
     );
 
-    // Debug logging
     if (otpResult.rows.length === 0) {
-      // Check if OTP exists but is expired
-      const expiredOtpCheck = await pool.query(
-        `SELECT otp_code, 
-         expires_at AT TIME ZONE 'UTC' as expires_at_utc,
-         CURRENT_TIMESTAMP AT TIME ZONE 'UTC' as current_time_utc,
-         (expires_at AT TIME ZONE 'UTC' > CURRENT_TIMESTAMP AT TIME ZONE 'UTC') as is_valid
-         FROM alpr_data.otp_tokens 
-         WHERE email = $1 AND otp_code = $2 AND verified = FALSE
-         ORDER BY created_at DESC LIMIT 1`,
-        [normalizedEmail, otp.trim()]
-      );
+      return res.status(401).json({ error: 'Invalid or expired OTP' });
+    }
 
-      if (expiredOtpCheck.rows.length > 0) {
-        const otpData = expiredOtpCheck.rows[0];
-        console.log('OTP Debug Info (UTC):', {
-          email: normalizedEmail,
-          otp: otp.trim(),
-          expires_at_utc: otpData.expires_at_utc,
-          current_time_utc: otpData.current_time_utc,
-          is_valid: otpData.is_valid,
-          time_diff_seconds: (new Date(otpData.expires_at_utc) - new Date(otpData.current_time_utc)) / 1000
-        });
-      }
+    const otpData = otpResult.rows[0];
+    const now = new Date();
+    const expiresAt = new Date(otpData.expires_at);
 
+    // Debug logging
+    console.log('OTP Validation Debug:', {
+      email: normalizedEmail,
+      otp: otp.trim(),
+      expires_at: expiresAt.toISOString(),
+      current_time: now.toISOString(),
+      time_diff_seconds: (expiresAt - now) / 1000,
+      is_expired: now > expiresAt
+    });
+
+    // Check if OTP has expired
+    if (now > expiresAt) {
       return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
 
@@ -500,20 +490,25 @@ app.post('/api/auth/signup', async (req, res) => {
   const normalizedEmail = email.toLowerCase().trim();
 
   try {
-    // Verify OTP first (using UTC timestamps for timezone-independent comparison)
+    // Get the OTP without time filtering (we'll check expiry in JavaScript)
     const otpResult = await pool.query(
-      `SELECT *, 
-       expires_at AT TIME ZONE 'UTC' as expires_at_utc,
-       CURRENT_TIMESTAMP AT TIME ZONE 'UTC' as current_time_utc
-       FROM alpr_data.otp_tokens 
+      `SELECT * FROM alpr_data.otp_tokens 
        WHERE email = $1 AND otp_code = $2 
-       AND expires_at AT TIME ZONE 'UTC' > CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
        AND verified = FALSE
        ORDER BY created_at DESC LIMIT 1`,
       [normalizedEmail, otp.trim()]
     );
 
     if (otpResult.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired OTP' });
+    }
+
+    const otpData = otpResult.rows[0];
+    const now = new Date();
+    const expiresAt = new Date(otpData.expires_at);
+
+    // Check if OTP has expired
+    if (now > expiresAt) {
       return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
 
