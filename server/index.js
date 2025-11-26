@@ -303,7 +303,8 @@ async function authenticateSession(req, res, next) {
       `SELECT us.*, u.email, u.name 
        FROM alpr_data.user_sessions us
        JOIN alpr_data.users u ON us.user_id = u.id
-       WHERE us.session_token = $1 AND us.expires_at > NOW()`,
+       WHERE us.session_token = $1 
+       AND us.expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`,
       [sessionToken]
     );
 
@@ -397,14 +398,39 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 
   try {
     // Check if OTP is valid
+    // TEMPORARY: Removed expiry check for testing timezone issues
     const otpResult = await pool.query(
       `SELECT * FROM alpr_data.otp_tokens 
-       WHERE email = $1 AND otp_code = $2 AND expires_at > NOW() AND verified = FALSE
+       WHERE email = $1 AND otp_code = $2 
+       AND verified = FALSE
        ORDER BY created_at DESC LIMIT 1`,
       [normalizedEmail, otp.trim()]
     );
 
+    // Debug logging
     if (otpResult.rows.length === 0) {
+      // Check if OTP exists but is expired
+      const expiredOtpCheck = await pool.query(
+        `SELECT otp_code, expires_at, 
+         (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') as current_time,
+         (expires_at > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')) as is_valid
+         FROM alpr_data.otp_tokens 
+         WHERE email = $1 AND otp_code = $2 AND verified = FALSE
+         ORDER BY created_at DESC LIMIT 1`,
+        [normalizedEmail, otp.trim()]
+      );
+
+      if (expiredOtpCheck.rows.length > 0) {
+        const otpData = expiredOtpCheck.rows[0];
+        console.log('OTP Debug Info:', {
+          email: normalizedEmail,
+          otp: otp.trim(),
+          expires_at: otpData.expires_at,
+          current_time: otpData.current_time,
+          is_valid: otpData.is_valid
+        });
+      }
+
       return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
 
@@ -471,9 +497,11 @@ app.post('/api/auth/signup', async (req, res) => {
 
   try {
     // Verify OTP first
+    // TEMPORARY: Removed expiry check for testing timezone issues
     const otpResult = await pool.query(
       `SELECT * FROM alpr_data.otp_tokens 
-       WHERE email = $1 AND otp_code = $2 AND expires_at > NOW() AND verified = FALSE
+       WHERE email = $1 AND otp_code = $2 
+       AND verified = FALSE
        ORDER BY created_at DESC LIMIT 1`,
       [normalizedEmail, otp.trim()]
     );
