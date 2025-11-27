@@ -37,6 +37,8 @@ export class DashboardComponent {
   selectedDetection = signal<Detection | null>(null);
   loading = signal(false);
   searching = signal(false);
+  loggingOut = signal(false);
+
 
   // Search state
   searchResults = signal<Detection[] | null>(null);
@@ -238,6 +240,24 @@ export class DashboardComponent {
     return ['All Cameras', ...Array.from(allCameras)];
   });
 
+  // Computed property for advanced filter button text
+  advancedFiltersButtonText = computed(() => {
+    const camera = this.selectedCamera();
+    const make = this.selectedCarMake();
+    const hasCamera = camera && camera !== 'All Cameras';
+    const hasMake = make && make !== 'All Makes';
+
+    if (hasCamera && hasMake) {
+      return `${camera} | ${make}`;
+    } else if (hasCamera) {
+      return camera;
+    } else if (hasMake) {
+      return make;
+    } else {
+      return 'Advanced Filters';
+    }
+  });
+
   uniqueCarMakes = computed(() => {
     const makeSet = new Set(this.carMakes());
     return ['All Makes', ...Array.from(makeSet)];
@@ -308,27 +328,16 @@ export class DashboardComponent {
   onPlateTagChange(event: Event) {
     const input = event.target as HTMLInputElement;
     this.plateTagSearch.set(input.value);
-    this.currentPage.set(1); // Reset to first page when filter changes
   }
 
   onCameraChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.selectedCamera.set(select.value);
-    this.currentPage.set(1); // Reset to first page when filter changes
-    // Clear search mode when changing camera filter
-    if (this.isSearchMode()) {
-      this.clearSearch();
-    }
   }
 
   onCarMakeChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.selectedCarMake.set(select.value);
-    this.currentPage.set(1); // Reset to first page when filter changes
-    // Clear search mode when changing car make filter
-    if (this.isSearchMode()) {
-      this.clearSearch();
-    }
   }
 
   onDateChange(type: 'start' | 'end', event: Event) {
@@ -365,7 +374,6 @@ export class DashboardComponent {
 
       this.dateRangeEnd.set(input.value);
     }
-    this.currentPage.set(1); // Reset to first page when filter changes
   }
 
   onEndDateClick(event: Event) {
@@ -565,11 +573,14 @@ export class DashboardComponent {
   }
 
   logout() {
+    this.loggingOut.set(true);
     this.authService.logout().subscribe({
       next: () => {
+        this.loggingOut.set(false);
         this.router.navigate(['/login']);
       },
       error: () => {
+        this.loggingOut.set(false);
         // Even if logout fails, redirect to login
         this.router.navigate(['/login']);
       }
