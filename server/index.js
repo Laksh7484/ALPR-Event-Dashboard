@@ -149,7 +149,7 @@ async function sendOTPEmail(email, otp) {
   const mailOptions = {
     from: process.env.SMTP_FROM || 'support@mail.platesmart.net',
     to: email,
-    subject: 'Your Login OTP - ALPR Dashboard',
+    subject: 'Your Login OTP - ALPR Archive Dashboard',
     html: `
       <!DOCTYPE html>
       <html>
@@ -171,7 +171,7 @@ async function sendOTPEmail(email, otp) {
                 <!-- Header -->
                 <tr>
                   <td style="background-color: #667eea; padding: 40px 30px; text-align: center;">
-                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">ALPR Dashboard</h1>
+                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">ALPR Archive Dashboard</h1>
                     <p style="color: #ffffff; margin: 10px 0 0 0; font-size: 16px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Secure Login Verification</p>
                   </td>
                 </tr>
@@ -180,7 +180,7 @@ async function sendOTPEmail(email, otp) {
                 <tr>
                   <td style="padding: 40px 30px; background: white;">
                     <p style="color: #555; font-size: 16px; line-height: 1.8; margin: 20px 0; text-align: center; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-                      You've requested to log in to your ALPR Dashboard. Use the verification code below to complete your login:
+                      You've requested to log in to your ALPR Archive Dashboard. Use the verification code below to complete your login:
                     </p>
                     
                     <!-- OTP Box -->
@@ -203,9 +203,9 @@ async function sendOTPEmail(email, otp) {
                 <!-- Footer -->
                 <tr>
                   <td style="background: #f8f9fa; padding: 30px; text-align: center; border-top: 1px solid #e0e0e0;">
-                    <p style="margin: 8px 0; font-size: 13px; color: #888; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">This is an automated message from ALPR Dashboard</p>
+                    <p style="margin: 8px 0; font-size: 13px; color: #888; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">This is an automated message from ALPR Archive Dashboard</p>
                     <p style="margin: 8px 0; font-size: 13px; color: #888; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Please do not reply to this email</p>
-                    <p style="margin-top: 15px; color: #aaa; font-size: 12px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">© 2025 ALPR Dashboard. All rights reserved.</p>
+                    <p style="margin-top: 15px; color: #aaa; font-size: 12px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">© 2025 ALPR Archive Dashboard. All rights reserved.</p>
                   </td>
                 </tr>
                 
