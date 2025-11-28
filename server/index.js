@@ -154,128 +154,65 @@ async function sendOTPEmail(email, otp) {
       <!DOCTYPE html>
       <html>
       <head>
-        <style>
-          body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-          }
-          .email-wrapper {
-            background: white;
-            border-radius: 16px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          }
-          .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 40px 30px;
-            text-align: center;
-          }
-          .header h1 {
-            color: white;
-            margin: 0;
-            font-size: 28px;
-            font-weight: 700;
-          }
-          .header p {
-            color: rgba(255, 255, 255, 0.9);
-            margin: 10px 0 0 0;
-            font-size: 16px;
-          }
-          .content {
-            padding: 40px 30px;
-            background: white;
-          }
-          .otp-section {
-            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
-            border: 2px solid #667eea;
-            border-radius: 12px;
-            padding: 30px;
-            text-align: center;
-            margin: 30px 0;
-          }
-          .otp-label {
-            color: #666;
-            font-size: 14px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 15px;
-          }
-          .otp-code {
-            font-size: 48px;
-            font-weight: bold;
-            letter-spacing: 12px;
-            color: #667eea;
-            margin: 15px 0;
-            text-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
-          }
-          .otp-validity {
-            color: #888;
-            font-size: 14px;
-            margin-top: 15px;
-          }
-          .instructions {
-            color: #555;
-            font-size: 16px;
-            line-height: 1.8;
-            margin: 20px 0;
-            text-align: center;
-          }
-          .footer {
-            background: #f8f9fa;
-            padding: 30px;
-            text-align: center;
-            border-top: 1px solid #e0e0e0;
-          }
-          .footer p {
-            margin: 8px 0;
-            font-size: 13px;
-            color: #888;
-          }
-          .security-note {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 4px;
-          }
-          .security-note p {
-            margin: 0;
-            color: #856404;
-            font-size: 14px;
-          }
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <!--[if mso]>
+        <style type="text/css">
+          table {border-collapse: collapse;}
         </style>
+        <![endif]-->
       </head>
-      <body>
-        <div class="email-wrapper">
-          <div class="header">
-            <h1 style="color: #ffffffff;">ALPR Dashboard</h1>
-            <p style="color: #ffffffff;">Secure Login Verification</p>
-          </div>
-          <div class="content">
-            <p class="instructions">
-              You've requested to log in to your ALPR Dashboard. Use the verification code below to complete your login:
-            </p>
-            <div class="otp-section">
-              <div class="otp-label">Your Verification Code</div>
-              <div class="otp-code">${otp}</div>
-              <div class="otp-validity">Valid for 5 minutes</div>
-            </div>
-            <p class="instructions">
-              Enter this code on the login page to access your dashboard.
-            </p>
-          </div>
-          <div class="footer">
-            <p>This is an automated message from ALPR Dashboard</p>
-            <p>Please do not reply to this email</p>
-            <p style="margin-top: 15px; color: #aaa; font-size: 12px;">© 2025 ALPR Dashboard. All rights reserved.</p>
-          </div>
-        </div>
+      <body style="margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f5f5f5; padding: 20px 0;">
+          <tr>
+            <td align="center">
+              <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                
+                <!-- Header -->
+                <tr>
+                  <td style="background-color: #667eea; padding: 40px 30px; text-align: center;">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">ALPR Dashboard</h1>
+                    <p style="color: #ffffff; margin: 10px 0 0 0; font-size: 16px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Secure Login Verification</p>
+                  </td>
+                </tr>
+                
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 40px 30px; background: white;">
+                    <p style="color: #555; font-size: 16px; line-height: 1.8; margin: 20px 0; text-align: center; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+                      You've requested to log in to your ALPR Dashboard. Use the verification code below to complete your login:
+                    </p>
+                    
+                    <!-- OTP Box -->
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
+                      <tr>
+                        <td style="background-color: #f5f7fa; border: 2px solid #667eea; border-radius: 12px; padding: 30px; text-align: center;">
+                          <p style="color: #666; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 15px 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">YOUR VERIFICATION CODE</p>
+                          <p style="font-size: 48px; font-weight: bold; letter-spacing: 12px; color: #667eea; margin: 15px 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Courier, monospace;">${otp}</p>
+                          <p style="color: #888; font-size: 14px; margin: 15px 0 0 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Valid for 5 minutes</p>
+                        </td>
+                      </tr>
+                    </table>
+                    
+                    <p style="color: #555; font-size: 16px; line-height: 1.8; margin: 20px 0; text-align: center; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+                      Enter this code on the login page to access your dashboard.
+                    </p>
+                  </td>
+                </tr>
+                
+                <!-- Footer -->
+                <tr>
+                  <td style="background: #f8f9fa; padding: 30px; text-align: center; border-top: 1px solid #e0e0e0;">
+                    <p style="margin: 8px 0; font-size: 13px; color: #888; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">This is an automated message from ALPR Dashboard</p>
+                    <p style="margin: 8px 0; font-size: 13px; color: #888; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Please do not reply to this email</p>
+                    <p style="margin-top: 15px; color: #aaa; font-size: 12px; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">© 2025 ALPR Dashboard. All rights reserved.</p>
+                  </td>
+                </tr>
+                
+              </table>
+            </td>
+          </tr>
+        </table>
       </body>
       </html>
     `
