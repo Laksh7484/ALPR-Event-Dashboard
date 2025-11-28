@@ -1,7 +1,8 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, BehaviorSubject } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { CacheService } from './cache.service';
 
 export interface User {
   id: string;
@@ -30,6 +31,7 @@ export class AuthService {
   private apiUrl = 'https://solenoidally-polygenistic-billi.ngrok-free.dev/api';
   private sessionTokenKey = 'alpr_session_token';
   private userSubject = new BehaviorSubject<User | null>(this.getStoredUser());
+  private cacheService = inject(CacheService);
 
   public user$ = this.userSubject.asObservable();
   public isAuthenticated = signal(!!this.getSessionToken());
@@ -72,6 +74,7 @@ export class AuthService {
   private clearSession(): void {
     localStorage.removeItem(this.sessionTokenKey);
     localStorage.removeItem('alpr_user');
+    this.cacheService.clear();
     this.userSubject.next(null);
     this.isAuthenticated.set(false);
   }
