@@ -190,6 +190,32 @@ export class LprDataService {
     return this.http.get<Detection[]>(url, { headers: this.getHeaders() });
   }
 
+  exportFilteredDetections(plateTag?: string, cameraName?: string, carMake?: string, startTimestamp?: string, endTimestamp?: string): Observable<Detection[]> {
+    let url = `${API_BASE_URL}/detections/export?`;
+    const params: string[] = [];
+
+    if (plateTag && plateTag.trim() !== '') {
+      params.push(`plateTag=${encodeURIComponent(plateTag)}`);
+    }
+    if (cameraName && cameraName !== 'All Cameras') {
+      params.push(`cameraName=${encodeURIComponent(cameraName)}`);
+    }
+    if (carMake && carMake !== 'All Makes') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const apiCarMake = normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      params.push(`carMake=${encodeURIComponent(apiCarMake)}`);
+    }
+    if (startTimestamp) {
+      params.push(`startTimestamp=${encodeURIComponent(startTimestamp)}`);
+    }
+    if (endTimestamp) {
+      params.push(`endTimestamp=${encodeURIComponent(endTimestamp)}`);
+    }
+
+    url += params.join('&');
+    return this.http.get<Detection[]>(url, { headers: this.getHeaders() });
+  }
+
   getDetectionsByCamera(cameraName?: string, carMake?: string): Observable<{ camera: string, detections: number }[]> {
     const cacheKey = `detections-by-camera-${cameraName || 'all'}-${carMake || 'all'}`;
     const cached = this.cacheService.get<{ camera: string, detections: number }[]>(cacheKey);

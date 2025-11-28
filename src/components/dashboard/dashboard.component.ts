@@ -511,57 +511,98 @@ export class DashboardComponent {
   }
 
   exportToCsv(): void {
-    const detections = this.filteredDetections();
-    if (detections.length === 0) {
-      return;
+    // Prepare filter parameters
+    const plateTag = this.plateTagSearch();
+    const camera = this.selectedCamera();
+    const carMake = this.selectedCarMake();
+    const startDate = this.dateRangeStart();
+    const endDate = this.dateRangeEnd();
+
+    // Convert dates to Unix timestamps (milliseconds)
+    const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
+    let endTimestamp = '';
+    if (endDate) {
+      const endDateObj = new Date(endDate + 'T00:00:00Z');
+      endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
+      endTimestamp = (endDateObj.getTime() - 1).toString();
     }
 
-    const headers = [
-      'Detection ID', 'Timestamp', 'Time of Day',
-      'Plate Tag', 'Plate Code',
-      'Source ID', 'Source Name', 'Source Type',
-      'Latitude', 'Longitude',
-      'Vehicle Make', 'Vehicle Type', 'Vehicle Color', 'Vehicle Orientation', 'Vehicle Bearing', 'Vehicle Occlusion',
-      'Image ID', 'Image Width', 'Image Height'
-    ];
-    const csvRows = [headers.join(',')];
+    // Show loader while exporting
+    this.loading.set(true);
 
-    for (const det of detections) {
-      const timestamp = new Date(det.timestamp).toLocaleString();
-      const values = [
-        det.id || 'N/A',
-        `"${timestamp}"`,
-        det.timeOfDay || 'N/A',
-        det.plate?.tag || 'N/A',
-        det.plate?.code || 'N/A',
-        det.source?.id || 'N/A',
-        det.source?.name || 'N/A',
-        det.source?.type || 'N/A',
-        det.location?.lat || 'N/A',
-        det.location?.lon || 'N/A',
-        det.vehicle?.make?.name || 'N/A',
-        det.vehicle?.type?.name || 'N/A',
-        det.vehicle?.color?.code || 'N/A',
-        det.vehicle?.orientation?.name || 'N/A',
-        det.vehicle?.bearing || 'N/A',
-        det.vehicle?.occlusion || 'N/A',
-        det.image?.id || 'N/A',
-        det.image?.width || 'N/A',
-        det.image?.height || 'N/A',
-      ];
-      csvRows.push(values.join(','));
-    }
+    // Call the export API to get ALL filtered data
+    this.lprDataService.exportFilteredDetections(
+      plateTag || undefined,
+      camera !== 'All Cameras' ? camera : undefined,
+      carMake !== 'All Makes' ? carMake : undefined,
+      startTimestamp || undefined,
+      endTimestamp || undefined
+    ).subscribe({
+      next: (detections) => {
+        if (detections.length === 0) {
+          console.log('No detections to export');
+          this.loading.set(false);
+          return;
+        }
 
-    const csvString = csvRows.join('\n');
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'detection_history.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+        console.log(`Exporting ${detections.length} detections to CSV`);
+
+        const headers = [
+          'Detection ID', 'Timestamp', 'Time of Day',
+          'Plate Tag', 'Plate Code',
+          'Source ID', 'Source Name', 'Source Type',
+          'Latitude', 'Longitude',
+          'Vehicle Make', 'Vehicle Type', 'Vehicle Color', 'Vehicle Orientation', 'Vehicle Bearing', 'Vehicle Occlusion',
+          'Image ID', 'Image Width', 'Image Height'
+        ];
+        const csvRows = [headers.join(',')];
+
+        for (const det of detections) {
+          const timestamp = new Date(det.timestamp).toLocaleString();
+          const values = [
+            det.id || 'N/A',
+            `"${timestamp}"`,
+            det.timeOfDay || 'N/A',
+            det.plate?.tag || 'N/A',
+            det.plate?.code || 'N/A',
+            det.source?.id || 'N/A',
+            det.source?.name || 'N/A',
+            det.source?.type || 'N/A',
+            det.location?.lat || 'N/A',
+            det.location?.lon || 'N/A',
+            det.vehicle?.make?.name || 'N/A',
+            det.vehicle?.type?.name || 'N/A',
+            det.vehicle?.color?.code || 'N/A',
+            det.vehicle?.orientation?.name || 'N/A',
+            det.vehicle?.bearing || 'N/A',
+            det.vehicle?.occlusion || 'N/A',
+            det.image?.id || 'N/A',
+            det.image?.width || 'N/A',
+            det.image?.height || 'N/A',
+          ];
+          csvRows.push(values.join(','));
+        }
+
+        const csvString = csvRows.join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'detection_history.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        // Hide loader after download
+        this.loading.set(false);
+      },
+      error: (error) => {
+        console.error('Error exporting detections:', error);
+        // Hide loader on error
+        this.loading.set(false);
+      }
+    });
   }
 
   selectDetection(detection: Detection) {

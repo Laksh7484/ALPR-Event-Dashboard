@@ -1369,6 +1369,98 @@ app.get('/api/detections/count', authenticateSession, async (req, res) => {
   }
 });
 
+// API endpoint to export all filtered detections (for CSV export)
+// This endpoint returns ALL filtered data without pagination
+app.get('/api/detections/export', authenticateSession, async (req, res) => {
+  const plateTag = req.query.plateTag;
+  const cameraName = req.query.cameraName;
+  const carMake = req.query.carMake;
+  const startTimestamp = req.query.startTimestamp;
+  const endTimestamp = req.query.endTimestamp;
+
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    let query = `
+      SELECT 
+        id,
+        timestamp,
+        plate_tag,
+        camera_id,
+        camera_name,
+        metadata,
+        source_file
+      FROM ${fullTableName}
+    `;
+
+    const queryParams = [];
+    const whereConditions = [];
+
+    // Add plate tag filter if provided (for search mode)
+    if (plateTag && plateTag.trim() !== '') {
+      whereConditions.push(`LOWER(plate_tag) LIKE LOWER($${queryParams.length + 1})`);
+      queryParams.push(`%${plateTag.trim()}%`);
+    }
+
+    // Add camera filter if provided
+    if (cameraName && cameraName !== 'All Cameras' && cameraName.trim() !== '') {
+      whereConditions.push(`camera_name = $${queryParams.length + 1}`);
+      queryParams.push(cameraName);
+    }
+
+    // Add car make filter if provided (search in metadata JSON)
+    if (carMake && carMake !== 'All Makes' && carMake.trim() !== '') {
+      const normalizedCarMake = carMake.trim().toLowerCase();
+      const makeValue = normalizedCarMake === 'unknown' || normalizedCarMake === 'n/a' ? 'unknown' : carMake;
+      const makeCondition = `(LOWER(${CAR_MAKE_SOURCE_SQL}) = LOWER($${queryParams.length + 1}))`;
+      whereConditions.push(makeCondition);
+      queryParams.push(makeValue);
+    }
+
+    // Add date range filter if provided
+    if (startTimestamp && startTimestamp.trim() !== '') {
+      const startTs = parseInt(startTimestamp, 10);
+      if (!isNaN(startTs)) {
+        whereConditions.push(`timestamp >= $${queryParams.length + 1}`);
+        queryParams.push(startTs);
+      }
+    }
+
+    if (endTimestamp && endTimestamp.trim() !== '') {
+      const endTs = parseInt(endTimestamp, 10);
+      if (!isNaN(endTs)) {
+        whereConditions.push(`timestamp <= $${queryParams.length + 1}`);
+        queryParams.push(endTs);
+      }
+    }
+
+    // Add WHERE clause if we have any conditions
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    // Order by timestamp and limit to prevent excessive data transfer
+    // Set a reasonable maximum limit (e.g., 100,000 records)
+    query += ` ORDER BY timestamp DESC LIMIT 100000`;
+
+    console.log('Export query:', query);
+    console.log('Export params:', queryParams);
+
+    const result = await pool.query(query, queryParams);
+
+    // Transform database rows to match Detection interface
+    const detections = result.rows.map(row => transformRowToDetection(row));
+
+    console.log(`Exporting ${detections.length} detections`);
+    res.json(detections);
+  } catch (error) {
+    console.error('Error exporting detections:', error);
+    res.status(500).json({ error: 'Failed to export detections', message: error.message });
+  }
+});
+
 // API endpoint to get KPIs
 app.get('/api/kpis', authenticateSession, async (req, res) => {
   try {

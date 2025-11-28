@@ -24,6 +24,14 @@ export class LoginComponent {
   success = signal('');
   otpSent = signal(false);
 
+  // Allowed email domains
+  private allowedDomains = [
+    'platesmart.com',
+    'skilljourney.in',
+    'adepttechnology.com',
+    'scmproducts.com'
+  ];
+
   constructor(
     private authService: AuthService,
     private router: Router
@@ -34,12 +42,22 @@ export class LoginComponent {
     return emailRegex.test(email);
   }
 
+  isAllowedDomain(email: string): boolean {
+    const domain = email.split('@')[1]?.toLowerCase();
+    return this.allowedDomains.includes(domain);
+  }
+
   async onEmailSubmit() {
     this.error.set('');
     this.success.set('');
 
     if (!this.isValidEmail(this.email())) {
       this.error.set('Please enter a valid email address');
+      return;
+    }
+
+    if (!this.isAllowedDomain(this.email())) {
+      this.error.set('Access restricted. Only users from authorized organizations can login.');
       return;
     }
 
