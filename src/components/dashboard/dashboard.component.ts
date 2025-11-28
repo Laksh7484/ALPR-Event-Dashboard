@@ -615,17 +615,13 @@ export class DashboardComponent {
 
   logout() {
     this.loggingOut.set(true);
+    // Fire and forget the backend logout
     this.authService.logout().subscribe({
-      next: () => {
-        this.loggingOut.set(false);
-        this.router.navigate(['/login']);
-      },
-      error: () => {
-        this.loggingOut.set(false);
-        // Even if logout fails, redirect to login
-        this.router.navigate(['/login']);
-      }
+      next: () => console.log('Backend logout successful'),
+      error: (err) => console.error('Backend logout failed', err)
     });
+    // Navigate immediately
+    this.router.navigate(['/login']);
   }
 
   // Removed chart visualization helper methods since charts are no longer displayed

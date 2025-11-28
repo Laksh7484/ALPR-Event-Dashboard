@@ -132,13 +132,13 @@ export class AuthService {
   }
 
   logout(): Observable<AuthResponse> {
+    const headers = this.getHeaders();
+    // Clear session immediately for UI responsiveness
+    this.clearSession();
+
     return this.http.post<AuthResponse>(`${this.apiUrl}/auth/logout`, {}, {
-      headers: this.getHeaders()
-    }).pipe(
-      tap(() => {
-        this.clearSession();
-      })
-    );
+      headers: headers
+    });
   }
 
   getCurrentUser(): User | null {
