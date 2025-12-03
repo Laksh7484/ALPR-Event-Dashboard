@@ -773,7 +773,9 @@ function transformRowToDetection(row) {
     timestamp: timestamp,
     type: metadata.type || 'alpr',
     vehicle: vehicle,
-    version: metadata.version || '1.0'
+    version: metadata.version || '1.0',
+    plate_image_url: row.plate_image_url || null,
+    original_image_url: row.original_image_url || null
   };
 }
 
@@ -804,7 +806,9 @@ app.get('/api/detections/search', authenticateSession, async (req, res) => {
         camera_id,
         camera_name,
         metadata,
-        source_file
+        source_file,
+        plate_image_url,
+        original_image_url
       FROM ${fullTableName}
       WHERE LOWER(plate_tag) LIKE LOWER($1)
     `;
@@ -1124,7 +1128,9 @@ app.get('/api/detections', authenticateSession, async (req, res) => {
         camera_id,
         camera_name,
         metadata,
-        source_file
+        source_file,
+        plate_image_url,
+        original_image_url
       FROM ${fullTableName}
     `;
 
@@ -1328,7 +1334,9 @@ app.get('/api/detections/export', authenticateSession, async (req, res) => {
         camera_id,
         camera_name,
         metadata,
-        source_file
+        source_file,
+        plate_image_url,
+        original_image_url
       FROM ${fullTableName}
     `;
 

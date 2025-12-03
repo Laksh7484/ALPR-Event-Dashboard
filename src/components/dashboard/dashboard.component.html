@@ -232,6 +232,7 @@
               <th scope="col" class="px-6 py-3">Vehicle Make</th>
               <th scope="col" class="px-6 py-3">Vehicle Type</th>
               <th scope="col" class="px-6 py-3">Vehicle Color</th>
+              <th scope="col" class="px-6 py-3">Plate Image</th>
               <th scope="col" class="px-2 py-3">
                 <span class="sr-only">Details</span>
               </th>
@@ -240,7 +241,7 @@
           <tbody>
             @if (!hasPerformedSearch() && !searching()) {
             <tr>
-              <td colspan="7" class="text-center py-12 text-gray-500">
+              <td colspan="8" class="text-center py-12 text-gray-500">
                 <div class="flex flex-col items-center gap-3">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-600" fill="none"
                     viewBox="0 0 24 24" stroke="currentColor">
@@ -256,7 +257,7 @@
             </tr>
             } @else if (isSearchMode() && filteredDetections().length === 0 && !searching()) {
             <tr>
-              <td colspan="7" class="text-center py-8 text-gray-500">
+              <td colspan="8" class="text-center py-8 text-gray-500">
                 No plates found matching "{{ plateTagSearch() }}".
               </td>
             </tr>
@@ -289,6 +290,13 @@
                     "></span>
                 <span>{{ formatValue(det.vehicle?.color?.code) }}</span>
               </td>
+              <td class="px-6 py-4">
+                @if (det.plate_image_url) {
+                <img [src]="det.plate_image_url" alt="Plate" class="h-12 w-auto rounded border border-gray-600">
+                } @else {
+                <span class="text-xs text-gray-500">No image</span>
+                }
+              </td>
               <td class="px-2 py-4">
                 <svg xmlns="http://www.w3.org/2000/svg"
                   class="h-5 w-5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" viewBox="0 0 20 20"
@@ -301,7 +309,7 @@
             </tr>
             } } @else {
             <tr>
-              <td colspan="7" class="text-center py-8 text-gray-500">
+              <td colspan="8" class="text-center py-8 text-gray-500">
                 No detections found.
               </td>
             </tr>

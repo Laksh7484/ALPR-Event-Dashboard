@@ -67,6 +67,8 @@ export interface Detection {
     };
   };
   version: string;
+  plate_image_url?: string;
+  original_image_url?: string;
 }
 
 @Injectable({ providedIn: 'root' })
