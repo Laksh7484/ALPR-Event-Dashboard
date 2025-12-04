@@ -34,7 +34,7 @@ app.use(session({
   }
 }));
 
-// PostgreSQL connection pool with enhanced settings for AWS RDS
+// PostgreSQL connection pool for AWS RDS
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432'),
@@ -43,14 +43,8 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || '',
   // AWS RDS requires SSL connections
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  // Connection pool settings optimized for AWS RDS
-  max: 20, // Maximum number of clients in the pool
-  min: 2, // Minimum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection cannot be established
-  // Keep connections alive
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000,
+  // Connection timeout - increased to 30s due to slow AWS RDS connection time
+  connectionTimeoutMillis: 30000,
 };
 
 console.log('Database configuration:', {
@@ -87,11 +81,12 @@ async function testDatabaseConnection() {
   while (retries > 0) {
     try {
       console.log(`Testing database connection... (${4 - retries}/3)`);
-      const client = await pool.connect();
-      const result = await client.query('SELECT NOW()');
-      client.release();
+
+      // Use direct query instead of pool.connect() to avoid pool initialization issues
+      const result = await pool.query('SELECT NOW() as server_time, version() as pg_version');
+
       console.log('✓ Database connection successful!');
-      console.log('  Server time:', result.rows[0].now);
+      console.log('  Server time:', result.rows[0].server_time);
       return true;
     } catch (error) {
       lastError = error;
