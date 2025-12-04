@@ -34,7 +34,7 @@ app.use(session({
   }
 }));
 
-// PostgreSQL connection pool
+// PostgreSQL connection pool with enhanced settings for AWS RDS
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432'),
@@ -43,6 +43,14 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || '',
   // AWS RDS requires SSL connections
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+  // Connection pool settings optimized for AWS RDS
+  max: 20, // Maximum number of clients in the pool
+  min: 2, // Minimum number of clients in the pool
+  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection cannot be established
+  // Keep connections alive
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 };
 
 console.log('Database configuration:', {
@@ -51,19 +59,73 @@ console.log('Database configuration:', {
   database: dbConfig.database,
   user: dbConfig.user,
   password: dbConfig.password ? '***' : '(empty)',
+  ssl: dbConfig.ssl ? 'enabled' : 'disabled',
 });
 
 const pool = new Pool(dbConfig);
 
-// Test database connection
-pool.on('connect', () => {
-  console.log('Connected to PostgreSQL database');
+// Test database connection with retry logic
+pool.on('connect', (client) => {
+  console.log('✓ Successfully connected to PostgreSQL database');
 });
 
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+pool.on('error', (err, client) => {
+  console.error('❌ Unexpected error on idle PostgreSQL client:', err.message);
+  console.error('Error details:', {
+    code: err.code,
+    errno: err.errno,
+    syscall: err.syscall,
+  });
+  // Don't exit immediately - let the app try to recover
 });
+
+// Initial connection test
+async function testDatabaseConnection() {
+  let retries = 3;
+  let lastError;
+
+  while (retries > 0) {
+    try {
+      console.log(`Testing database connection... (${4 - retries}/3)`);
+      const client = await pool.connect();
+      const result = await client.query('SELECT NOW()');
+      client.release();
+      console.log('✓ Database connection successful!');
+      console.log('  Server time:', result.rows[0].now);
+      return true;
+    } catch (error) {
+      lastError = error;
+      retries--;
+      console.error(`❌ Database connection failed (${3 - retries}/3):`, error.message);
+      console.error('Error details:', {
+        code: error.code,
+        errno: error.errno,
+        syscall: error.syscall,
+        address: error.address,
+      });
+
+      if (retries > 0) {
+        console.log(`Retrying in 2 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  console.error('\n❌ Database connection failed after 3 attempts');
+  console.error('Last error:', lastError.message);
+  console.error('\nPossible causes:');
+  console.error('1. AWS RDS Security Group does not allow your IP address');
+  console.error('2. Database credentials are incorrect');
+  console.error('3. Database does not exist');
+  console.error('4. Network/firewall blocking the connection');
+  console.error('5. RDS instance is not publicly accessible');
+  console.error('\nPlease check:');
+  console.error('- AWS RDS Console → Your DB → Security Groups → Inbound Rules');
+  console.error('- Ensure your current IP is whitelisted on port 5432');
+  console.error('- Verify DB_PASSWORD is correct in .env file');
+
+  return false;
+}
 
 // Email transporter configuration
 const emailTransporter = nodemailer.createTransport({
@@ -1457,19 +1519,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Test database connection on startup
-async function testDatabaseConnection() {
-  try {
-    const result = await pool.query('SELECT NOW()');
-    console.log('Database connection successful. Server time:', result.rows[0].now);
-    await initializeDatabase();
-  } catch (error) {
-    console.error('Database connection failed:', error.message);
-    console.error('Make sure your PostgreSQL database is running and .env file is configured correctly.');
-  }
-}
-
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server is running on http://0.0.0.0:${PORT}`);
-  await testDatabaseConnection();
+  const connected = await testDatabaseConnection();
+  if (connected) {
+    await initializeDatabase();
+  } else {
+    console.warn('\n⚠️  Server started but database is NOT connected!');
+    console.warn('The server will run but database operations will fail.');
+  }
 });
+

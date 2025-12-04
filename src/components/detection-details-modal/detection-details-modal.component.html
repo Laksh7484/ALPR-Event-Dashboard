@@ -21,9 +21,6 @@
           <p><strong class="text-gray-400 w-28 inline-block">Tag:</strong> <span class="font-mono">{{
               detection().plate.tag }}</span></p>
           <p><strong class="text-gray-400 w-28 inline-block">State:</strong> {{ detection().plate.code }}</p>
-          <p><strong class="text-gray-400 w-28 inline-block">Region Box:</strong> {{ detection().plate.region.width }}w
-            &times; {{ detection().plate.region.height }}h at ({{ detection().plate.region.x }}, {{
-            detection().plate.region.y }})</p>
         </section>
 
         <!-- Vehicle Details -->
@@ -43,7 +40,7 @@
         <section class="space-y-3">
           <h3 class="text-lg font-semibold text-cyan-400 border-b border-cyan-400/20 pb-2">Capture Info</h3>
           <p><strong class="text-gray-400 w-28 inline-block">Timestamp:</strong> {{ detection().timestamp ?
-            (detection().timestamp | date:'medium') : 'N/A' }}</p>
+            formatTimestampToGMT(detection().timestamp) : 'N/A' }}</p>
           <p><strong class="text-gray-400 w-28 inline-block">Camera Name:</strong> {{ detection().source.name }}</p>
           <p><strong class="text-gray-400 w-28 inline-block">Camera ID:</strong> <span class="font-mono text-xs">{{
               detection().source.id }}</span></p>

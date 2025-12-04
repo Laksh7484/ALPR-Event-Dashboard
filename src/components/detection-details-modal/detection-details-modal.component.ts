@@ -32,4 +32,27 @@ export class DetectionDetailsModalComponent implements OnDestroy {
   stopPropagation(event: Event): void {
     event.stopPropagation();
   }
+
+  // Formats timestamp in GMT/UTC as 'MMM d, yyyy, h:mm:ss a'
+  formatTimestampToGMT(timestamp: string | number | Date): string {
+    if (!timestamp) return 'N/A';
+    try {
+      // Parse the input timestamp
+      const date = new Date(timestamp);
+      // Format as 'MMM d, yyyy, h:mm:ss a' in UTC
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = months[date.getUTCMonth()];
+      const day = date.getUTCDate();
+      const year = date.getUTCFullYear();
+      let hour = date.getUTCHours();
+      const minute = date.getUTCMinutes().toString().padStart(2, '0');
+      const second = date.getUTCSeconds().toString().padStart(2, '0');
+      const ampm = hour >= 12 ? 'AM' : 'PM';
+      hour = hour % 12;
+      if (hour === 0) hour = 12;
+      return `${month} ${day}, ${year}, ${hour}:${minute}:${second} ${ampm}`;
+    } catch {
+      return 'N/A';
+    }
+  }
 }
