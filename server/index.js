@@ -43,8 +43,10 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || '',
   // AWS RDS requires SSL connections
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  // Connection timeout - increased to 30s due to slow AWS RDS connection time
-  connectionTimeoutMillis: 30000,
+  // Simplified pool settings for unstable AWS RDS
+  max: 3, // Keep pool small - RDS drops connections frequently
+  idleTimeoutMillis: 10000, // Release idle connections quickly (10s)
+  connectionTimeoutMillis: 30000, // 30s to establish connection
 };
 
 console.log('Database configuration:', {
@@ -121,6 +123,40 @@ async function testDatabaseConnection() {
 
   return false;
 }
+
+// Retry wrapper for database queries to handle unstable AWS RDS connections
+async function queryWithRetry(queryText, params = [], maxRetries = 2) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await pool.query(queryText, params);
+    } catch (error) {
+      lastError = error;
+
+      // Only retry on connection/timeout errors
+      const isRetryable = error.message && (
+        error.message.includes('Connection terminated') ||
+        error.message.includes('timeout exceeded') ||
+        error.message.includes('ECONNRESET') ||
+        error.code === 'ECONNRESET'
+      );
+
+      if (isRetryable && attempt < maxRetries) {
+        console.warn(`Query failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying...`);
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        continue;
+      }
+
+      // Non-retryable error or max retries reached
+      throw error;
+    }
+  }
+
+  throw lastError;
+}
+
 
 // Email transporter configuration
 const emailTransporter = nodemailer.createTransport({
