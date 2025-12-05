@@ -532,7 +532,7 @@ app.post('/api/auth/check-user', async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
+    const result = await queryWithRetry(
       'SELECT id, email, name FROM alpr_data.users WHERE email = $1',
       [email.toLowerCase().trim()]
     );
