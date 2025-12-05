@@ -7,6 +7,7 @@ import { dirname, resolve } from 'path';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import session from 'express-session';
+import cron from 'node-cron';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -227,6 +228,159 @@ async function initializeDatabase() {
     console.log('Database tables initialized successfully in alpr_data schema');
   } catch (error) {
     console.error('Error initializing database tables:', error);
+  }
+}
+
+// Initialize cache table
+async function initializeCacheTable() {
+  try {
+    // Create cache table in alpr_data schema
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS alpr_data.api_cache (
+        cache_key VARCHAR(100) PRIMARY KEY,
+        cache_data JSONB NOT NULL,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP
+      )
+    `);
+
+    // Create index on last_updated for performance
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_api_cache_last_updated ON alpr_data.api_cache(last_updated)`);
+
+    console.log('✓ Cache table initialized successfully');
+  } catch (error) {
+    console.error('Error initializing cache table:', error);
+  }
+}
+
+// Cache management functions
+
+// Get cached data by key
+async function getCachedData(cacheKey) {
+  try {
+    const result = await pool.query(
+      'SELECT cache_data, last_updated FROM alpr_data.api_cache WHERE cache_key = $1',
+      [cacheKey]
+    );
+
+    if (result.rows.length > 0) {
+      return {
+        data: result.rows[0].cache_data,
+        lastUpdated: result.rows[0].last_updated
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error getting cached data for ${cacheKey}:`, error);
+    return null;
+  }
+}
+
+// Set cached data for a key
+async function setCachedData(cacheKey, data) {
+  try {
+    await pool.query(
+      `INSERT INTO alpr_data.api_cache (cache_key, cache_data, last_updated)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (cache_key) 
+       DO UPDATE SET cache_data = $2, last_updated = CURRENT_TIMESTAMP`,
+      [cacheKey, JSON.stringify(data)]
+    );
+    console.log(`✓ Cache updated for: ${cacheKey}`);
+    return true;
+  } catch (error) {
+    console.error(`Error setting cached data for ${cacheKey}:`, error);
+    return false;
+  }
+}
+
+// Fetch and cache all API data
+async function fetchAndCacheData() {
+  console.log('\\n🔄 Starting scheduled cache refresh...');
+  const startTime = Date.now();
+
+  try {
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    // Fetch KPIs data
+    console.log('  Fetching KPIs...');
+    const totalQuery = `SELECT COUNT(*) as total FROM ${fullTableName}`;
+    const camerasQuery = `
+      SELECT COUNT(DISTINCT camera_name) as total
+      FROM ${fullTableName}
+      WHERE camera_name IS NOT NULL
+    `;
+
+    const [totalResult, camerasResult] = await Promise.all([
+      pool.query(totalQuery),
+      pool.query(camerasQuery)
+    ]);
+
+    const totalDetections = parseInt(totalResult.rows[0].total) || 0;
+    const activeCameras = parseInt(camerasResult.rows[0].total) || 0;
+
+    const kpisData = [
+      {
+        title: 'Total Detections',
+        value: totalDetections.toLocaleString('en-US'),
+        icon: 'M3 10h18M3 14h18m-9-4v8',
+        color: 'cyan'
+      },
+      {
+        title: 'Active Cameras',
+        value: activeCameras.toString(),
+        icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z',
+        color: 'purple'
+      }
+    ];
+    await setCachedData('kpis', kpisData);
+
+    // Fetch cameras data
+    console.log('  Fetching cameras...');
+    const camerasQueryResult = await pool.query(`
+      SELECT DISTINCT camera_name 
+      FROM ${fullTableName}
+      WHERE camera_name IS NOT NULL
+      ORDER BY camera_name ASC
+    `);
+    const cameras = camerasQueryResult.rows.map(row => row.camera_name);
+    await setCachedData('cameras', cameras);
+
+    // Fetch car makes data
+    console.log('  Fetching car makes...');
+    const carMakesQuery = `
+      SELECT DISTINCT ${CAR_MAKE_SOURCE_SQL} AS raw_make
+      FROM ${fullTableName}
+      WHERE metadata IS NOT NULL
+      ORDER BY raw_make ASC
+    `;
+    const carMakesResult = await pool.query(carMakesQuery);
+    const makes = carMakesResult.rows
+      .map(row => row.raw_make)
+      .filter(make => make && make.trim() !== '')
+      .map(make => {
+        const normalized = make.trim().toLowerCase();
+        if (normalized === 'unknown') {
+          return 'N/A';
+        }
+        return toTitleCase(make.trim());
+      })
+      .filter((make, index, self) => self.indexOf(make) === index)
+      .sort();
+    await setCachedData('car_makes', makes);
+
+    const duration = Date.now() - startTime;
+    console.log(`✅ Cache refresh completed in ${duration}ms`);
+    console.log(`   - KPIs: ${kpisData.length} items`);
+    console.log(`   - Cameras: ${cameras.length} items`);
+    console.log(`   - Car Makes: ${makes.length} items\\n`);
+
+    return true;
+  } catch (error) {
+    console.error('❌ Error during cache refresh:', error);
+    return false;
   }
 }
 
@@ -1288,6 +1442,14 @@ app.get('/api/detections', authenticateSession, async (req, res) => {
 // API endpoint to get all unique camera names
 app.get('/api/cameras', authenticateSession, async (req, res) => {
   try {
+    // Try to get cached data first
+    const cachedData = await getCachedData('cameras');
+    if (cachedData) {
+      return res.json(cachedData.data);
+    }
+
+    // Fallback to live query if cache is unavailable
+    console.warn('Cache miss for cameras, querying database...');
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
@@ -1312,6 +1474,14 @@ app.get('/api/cameras', authenticateSession, async (req, res) => {
 // API endpoint to get all unique car makes from metadata
 app.get('/api/car-makes', authenticateSession, async (req, res) => {
   try {
+    // Try to get cached data first
+    const cachedData = await getCachedData('car_makes');
+    if (cachedData) {
+      return res.json(cachedData.data);
+    }
+
+    // Fallback to live query if cache is unavailable
+    console.warn('Cache miss for car makes, querying database...');
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
@@ -1505,6 +1675,14 @@ app.get('/api/detections/export', authenticateSession, async (req, res) => {
 // API endpoint to get KPIs
 app.get('/api/kpis', authenticateSession, async (req, res) => {
   try {
+    // Try to get cached data first
+    const cachedData = await getCachedData('kpis');
+    if (cachedData) {
+      return res.json(cachedData.data);
+    }
+
+    // Fallback to live query if cache is unavailable
+    console.warn('Cache miss for KPIs, querying database...');
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
@@ -1548,6 +1726,64 @@ app.get('/api/kpis', authenticateSession, async (req, res) => {
   }
 });
 
+// Cache status endpoint
+app.get('/api/cache/status', authenticateSession, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT cache_key, last_updated 
+      FROM alpr_data.api_cache 
+      ORDER BY cache_key
+    `);
+
+    const status = {
+      cacheEnabled: true,
+      lastUpdate: null,
+      caches: {}
+    };
+
+    result.rows.forEach(row => {
+      status.caches[row.cache_key] = {
+        lastUpdated: row.last_updated,
+        age: Math.floor((Date.now() - new Date(row.last_updated).getTime()) / 1000) // Age in seconds
+      };
+
+      // Track the most recent update
+      if (!status.lastUpdate || new Date(row.last_updated) > new Date(status.lastUpdate)) {
+        status.lastUpdate = row.last_updated;
+      }
+    });
+
+    res.json(status);
+  } catch (error) {
+    console.error('Error fetching cache status:', error);
+    res.status(500).json({ error: 'Failed to fetch cache status', message: error.message });
+  }
+});
+
+// Manual cache refresh endpoint
+app.post('/api/cache/refresh', authenticateSession, async (req, res) => {
+  try {
+    console.log('Manual cache refresh requested by user');
+    const success = await fetchAndCacheData();
+
+    if (success) {
+      res.json({
+        success: true,
+        message: 'Cache refreshed successfully',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Cache refresh failed'
+      });
+    }
+  } catch (error) {
+    console.error('Error during manual cache refresh:', error);
+    res.status(500).json({ error: 'Failed to refresh cache', message: error.message });
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -1558,6 +1794,21 @@ app.listen(PORT, '0.0.0.0', async () => {
   const connected = await testDatabaseConnection();
   if (connected) {
     await initializeDatabase();
+    await initializeCacheTable();
+
+    // Run initial cache population
+    console.log('\\n📦 Populating initial cache...');
+    await fetchAndCacheData();
+
+    // Schedule daily cache refresh at 2:00 AM
+    // Using cron format: minute hour day month dayOfWeek
+    // '0 2 * * *' = At 02:00 every day
+    cron.schedule('0 2 * * *', async () => {
+      console.log('\\n⏰ Running scheduled cache refresh at 2:00 AM...');
+      await fetchAndCacheData();
+    });
+
+    console.log('\\n⏰ Scheduled job configured: Cache will refresh daily at 2:00 AM');
   } else {
     console.warn('\n⚠️  Server started but database is NOT connected!');
     console.warn('The server will run but database operations will fail.');
