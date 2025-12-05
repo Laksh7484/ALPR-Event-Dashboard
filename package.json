@@ -28,7 +28,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "nodemailer": "^6.9.7",
-    "express-session": "^1.17.3"
+    "express-session": "^1.17.3",
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
