@@ -200,7 +200,7 @@ emailTransporter.verify((error, success) => {
 async function initializeDatabase() {
   try {
     // Create users table in alpr_data schema
-    await pool.query(`
+    await queryWithRetry(`
       CREATE TABLE IF NOT EXISTS alpr_data.users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         email VARCHAR(255) UNIQUE NOT NULL,
@@ -211,7 +211,7 @@ async function initializeDatabase() {
     `);
 
     // Create OTP tokens table in alpr_data schema
-    await pool.query(`
+    await queryWithRetry(`
       CREATE TABLE IF NOT EXISTS alpr_data.otp_tokens (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         email VARCHAR(255) NOT NULL,
@@ -223,7 +223,7 @@ async function initializeDatabase() {
     `);
 
     // Create user sessions table in alpr_data schema
-    await pool.query(`
+    await queryWithRetry(`
       CREATE TABLE IF NOT EXISTS alpr_data.user_sessions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES alpr_data.users(id) ON DELETE CASCADE,
@@ -234,10 +234,10 @@ async function initializeDatabase() {
     `);
 
     // Create indexes
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_email ON alpr_data.otp_tokens(email)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_expires_at ON alpr_data.otp_tokens(expires_at)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON alpr_data.user_sessions(session_token)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON alpr_data.user_sessions(expires_at)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_email ON alpr_data.otp_tokens(email)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_expires_at ON alpr_data.otp_tokens(expires_at)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON alpr_data.user_sessions(session_token)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON alpr_data.user_sessions(expires_at)`);
 
     console.log('Database tables initialized successfully in alpr_data schema');
   } catch (error) {
@@ -500,7 +500,7 @@ async function authenticateSession(req, res, next) {
   }
 
   try {
-    const result = await pool.query(
+    const result = await queryWithRetry(
       `SELECT us.*, u.email, u.name 
        FROM alpr_data.user_sessions us
        JOIN alpr_data.users u ON us.user_id = u.id
@@ -560,10 +560,10 @@ app.post('/api/auth/send-otp', async (req, res) => {
 
   try {
     // Delete old OTPs for this email
-    await pool.query('DELETE FROM alpr_data.otp_tokens WHERE email = $1', [normalizedEmail]);
+    await queryWithRetry('DELETE FROM alpr_data.otp_tokens WHERE email = $1', [normalizedEmail]);
 
     // Insert new OTP
-    await pool.query(
+    await queryWithRetry(
       'INSERT INTO alpr_data.otp_tokens (email, otp_code, expires_at) VALUES ($1, $2, $3)',
       [normalizedEmail, otp, expiresAt]
     );
@@ -598,7 +598,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 
   try {
     // Get the OTP without time filtering (we'll check expiry in JavaScript)
-    const otpResult = await pool.query(
+    const otpResult = await queryWithRetry(
       `SELECT * FROM alpr_data.otp_tokens 
        WHERE email = $1 AND otp_code = $2 
        AND verified = FALSE
@@ -630,13 +630,13 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     }
 
     // Mark OTP as verified
-    await pool.query(
+    await queryWithRetry(
       'UPDATE alpr_data.otp_tokens SET verified = TRUE WHERE id = $1',
       [otpResult.rows[0].id]
     );
 
     // Check if user exists
-    const userResult = await pool.query(
+    const userResult = await queryWithRetry(
       'SELECT * FROM alpr_data.users WHERE email = $1',
       [normalizedEmail]
     );
@@ -651,7 +651,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     const user = userResult.rows[0];
 
     // Update last login
-    await pool.query(
+    await queryWithRetry(
       'UPDATE alpr_data.users SET last_login = NOW() WHERE id = $1',
       [user.id]
     );
@@ -660,7 +660,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     const sessionToken = generateSessionToken();
     const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    await pool.query(
+    await queryWithRetry(
       'INSERT INTO alpr_data.user_sessions (user_id, session_token, expires_at) VALUES ($1, $2, $3)',
       [user.id, sessionToken, sessionExpiresAt]
     );
@@ -692,7 +692,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
   try {
     // Get the OTP without time filtering (we'll check expiry in JavaScript)
-    const otpResult = await pool.query(
+    const otpResult = await queryWithRetry(
       `SELECT * FROM alpr_data.otp_tokens 
        WHERE email = $1 AND otp_code = $2 
        AND verified = FALSE
@@ -714,13 +714,13 @@ app.post('/api/auth/signup', async (req, res) => {
     }
 
     // Mark OTP as verified
-    await pool.query(
+    await queryWithRetry(
       'UPDATE alpr_data.otp_tokens SET verified = TRUE WHERE id = $1',
       [otpResult.rows[0].id]
     );
 
     // Check if user already exists
-    const existingUser = await pool.query(
+    const existingUser = await queryWithRetry(
       'SELECT id FROM alpr_data.users WHERE email = $1',
       [normalizedEmail]
     );
@@ -730,7 +730,7 @@ app.post('/api/auth/signup', async (req, res) => {
     }
 
     // Create new user
-    const userResult = await pool.query(
+    const userResult = await queryWithRetry(
       'INSERT INTO alpr_data.users (email, name, last_login) VALUES ($1, $2, NOW()) RETURNING *',
       [normalizedEmail, name || null]
     );
@@ -741,7 +741,7 @@ app.post('/api/auth/signup', async (req, res) => {
     const sessionToken = generateSessionToken();
     const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    await pool.query(
+    await queryWithRetry(
       'INSERT INTO alpr_data.user_sessions (user_id, session_token, expires_at) VALUES ($1, $2, $3)',
       [user.id, sessionToken, sessionExpiresAt]
     );
@@ -777,7 +777,7 @@ app.post('/api/auth/logout', authenticateSession, async (req, res) => {
   const sessionToken = req.headers.authorization?.replace('Bearer ', '');
 
   try {
-    await pool.query('DELETE FROM alpr_data.user_sessions WHERE session_token = $1', [sessionToken]);
+    await queryWithRetry('DELETE FROM alpr_data.user_sessions WHERE session_token = $1', [sessionToken]);
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
     console.error('Error logging out:', error);
@@ -1119,7 +1119,7 @@ app.get('/api/detections/search', authenticateSession, async (req, res) => {
 
     query += ` ORDER BY timestamp DESC LIMIT 100`;
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     // Transform database rows to match Detection interface
     const detections = result.rows.map(row => transformRowToDetection(row));
@@ -1173,7 +1173,7 @@ app.get('/api/analytics/detections-by-camera', authenticateSession, async (req, 
 
     query += ` GROUP BY camera_name ORDER BY detections DESC`;
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     const cameraStats = result.rows.map(row => ({
       camera: row.camera_name || 'N/A',
@@ -1234,7 +1234,7 @@ app.get('/api/analytics/vehicle-types', authenticateSession, async (req, res) =>
 
     query += ` GROUP BY vehicle_type ORDER BY count DESC`;
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     const typeStats = result.rows.map(row => ({
       name: (row.vehicle_type && row.vehicle_type.trim() !== '') ? row.vehicle_type : 'N/A',
@@ -1294,7 +1294,7 @@ app.get('/api/analytics/vehicle-colors', authenticateSession, async (req, res) =
 
     query += ` GROUP BY vehicle_color ORDER BY count DESC`;
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     const colorStats = result.rows.map(row => ({
       name: (row.vehicle_color && row.vehicle_color.trim() !== '' && row.vehicle_color !== 'unknown') ? row.vehicle_color : 'N/A',
@@ -1355,7 +1355,7 @@ app.get('/api/analytics/vehicle-orientations', authenticateSession, async (req, 
 
     query += ` GROUP BY vehicle_orientation ORDER BY count DESC`;
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     const orientationStats = result.rows.map(row => ({
       name: (row.vehicle_orientation && row.vehicle_orientation.trim() !== '' && row.vehicle_orientation !== 'Unknown') ? row.vehicle_orientation : 'N/A',
@@ -1441,7 +1441,7 @@ app.get('/api/detections', authenticateSession, async (req, res) => {
     query += ` ORDER BY timestamp DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
     queryParams.push(limit, offset);
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     // Transform database rows to match Detection interface
     const detections = result.rows.map(row => transformRowToDetection(row));
@@ -1475,7 +1475,7 @@ app.get('/api/cameras', authenticateSession, async (req, res) => {
       ORDER BY camera_name ASC
     `;
 
-    const result = await pool.query(query);
+    const result = await queryWithRetry(query);
     const cameras = result.rows.map(row => row.camera_name);
 
     res.json(cameras);
@@ -1507,7 +1507,7 @@ app.get('/api/car-makes', authenticateSession, async (req, res) => {
       ORDER BY raw_make ASC
     `;
 
-    const result = await pool.query(query);
+    const result = await queryWithRetry(query);
     const makes = result.rows
       .map(row => row.raw_make)
       .filter(make => make && make.trim() !== '')
@@ -1582,7 +1582,7 @@ app.get('/api/detections/count', authenticateSession, async (req, res) => {
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     res.json({ total: parseInt(result.rows[0].count, 10) });
 
@@ -1673,7 +1673,7 @@ app.get('/api/detections/export', authenticateSession, async (req, res) => {
     console.log('Export query:', query);
     console.log('Export params:', queryParams);
 
-    const result = await pool.query(query, queryParams);
+    const result = await queryWithRetry(query, queryParams);
 
     // Transform database rows to match Detection interface
     const detections = result.rows.map(row => transformRowToDetection(row));
@@ -1713,8 +1713,8 @@ app.get('/api/kpis', authenticateSession, async (req, res) => {
     `;
 
     const [totalResult, camerasResult] = await Promise.all([
-      pool.query(totalQuery),
-      pool.query(camerasQuery)
+      queryWithRetry(totalQuery),
+      queryWithRetry(camerasQuery)
     ]);
 
     const totalDetections = parseInt(totalResult.rows[0].total) || 0;
