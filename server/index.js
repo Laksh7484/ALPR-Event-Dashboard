@@ -47,10 +47,10 @@ const dbConfig = {
     rejectUnauthorized: false
   } : false,
   // Optimized pool settings for db.t3.micro instance
-  max: 2, // Very small pool - only 2 connections
+  max: 5, // Increased to handle concurrent requests
   min: 0,
   idleTimeoutMillis: 30000, // Keep connections alive 30s
-  connectionTimeoutMillis: 45000, // 45s timeout for slow network
+  connectionTimeoutMillis: 60000, // Increased to 60s for very slow connections
 };
 
 console.log('Database configuration:', {
@@ -64,9 +64,23 @@ console.log('Database configuration:', {
 
 const pool = new Pool(dbConfig);
 
+// Pool monitoring for debugging
+pool.on('acquire', (client) => {
+  const stats = {
+    total: pool.totalCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount
+  };
+  console.log(`🔌 Connection acquired from pool - Total: ${stats.total}, Idle: ${stats.idle}, Waiting: ${stats.waiting}`);
+});
+
+pool.on('remove', (client) => {
+  console.log('🗑️  Connection removed from pool');
+});
+
 // Test database connection with retry logic
 pool.on('connect', (client) => {
-  console.log('✓ Successfully connected to PostgreSQL database');
+  console.log('✅ New connection established to PostgreSQL database');
 });
 
 pool.on('error', (err, client) => {
@@ -235,7 +249,7 @@ async function initializeDatabase() {
 async function initializeCacheTable() {
   try {
     // Create cache table in alpr_data schema
-    await pool.query(`
+    await queryWithRetry(`
       CREATE TABLE IF NOT EXISTS alpr_data.api_cache (
         cache_key VARCHAR(100) PRIMARY KEY,
         cache_data JSONB NOT NULL,
@@ -245,7 +259,7 @@ async function initializeCacheTable() {
     `);
 
     // Create index on last_updated for performance
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_api_cache_last_updated ON alpr_data.api_cache(last_updated)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_api_cache_last_updated ON alpr_data.api_cache(last_updated)`);
 
     console.log('✓ Cache table initialized successfully');
   } catch (error) {
@@ -258,7 +272,7 @@ async function initializeCacheTable() {
 // Get cached data by key
 async function getCachedData(cacheKey) {
   try {
-    const result = await pool.query(
+    const result = await queryWithRetry(
       'SELECT cache_data, last_updated FROM alpr_data.api_cache WHERE cache_key = $1',
       [cacheKey]
     );
@@ -279,7 +293,7 @@ async function getCachedData(cacheKey) {
 // Set cached data for a key
 async function setCachedData(cacheKey, data) {
   try {
-    await pool.query(
+    await queryWithRetry(
       `INSERT INTO alpr_data.api_cache (cache_key, cache_data, last_updated)
        VALUES ($1, $2, CURRENT_TIMESTAMP)
        ON CONFLICT (cache_key) 
@@ -314,8 +328,8 @@ async function fetchAndCacheData() {
     `;
 
     const [totalResult, camerasResult] = await Promise.all([
-      pool.query(totalQuery),
-      pool.query(camerasQuery)
+      queryWithRetry(totalQuery),
+      queryWithRetry(camerasQuery)
     ]);
 
     const totalDetections = parseInt(totalResult.rows[0].total) || 0;
@@ -339,7 +353,7 @@ async function fetchAndCacheData() {
 
     // Fetch cameras data
     console.log('  Fetching cameras...');
-    const camerasQueryResult = await pool.query(`
+    const camerasQueryResult = await queryWithRetry(`
       SELECT DISTINCT camera_name 
       FROM ${fullTableName}
       WHERE camera_name IS NOT NULL
@@ -356,7 +370,7 @@ async function fetchAndCacheData() {
       WHERE metadata IS NOT NULL
       ORDER BY raw_make ASC
     `;
-    const carMakesResult = await pool.query(carMakesQuery);
+    const carMakesResult = await queryWithRetry(carMakesQuery);
     const makes = carMakesResult.rows
       .map(row => row.raw_make)
       .filter(make => make && make.trim() !== '')
@@ -1729,7 +1743,7 @@ app.get('/api/kpis', authenticateSession, async (req, res) => {
 // Cache status endpoint
 app.get('/api/cache/status', authenticateSession, async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await queryWithRetry(`
       SELECT cache_key, last_updated 
       FROM alpr_data.api_cache 
       ORDER BY cache_key
@@ -1796,19 +1810,22 @@ app.listen(PORT, '0.0.0.0', async () => {
     await initializeDatabase();
     await initializeCacheTable();
 
-    // Run initial cache population
-    console.log('\\n📦 Populating initial cache...');
-    await fetchAndCacheData();
+    // Run initial cache population in background (non-blocking)
+    console.log('\n📦 Populating cache in background...');
+    fetchAndCacheData().catch(err => {
+      console.error('⚠️  Initial cache population failed, will retry at 2:00 AM:', err.message);
+    });
 
     // Schedule daily cache refresh at 2:00 AM
     // Using cron format: minute hour day month dayOfWeek
     // '0 2 * * *' = At 02:00 every day
     cron.schedule('0 2 * * *', async () => {
-      console.log('\\n⏰ Running scheduled cache refresh at 2:00 AM...');
+      console.log('\n⏰ Running scheduled cache refresh at 2:00 AM...');
       await fetchAndCacheData();
     });
 
-    console.log('\\n⏰ Scheduled job configured: Cache will refresh daily at 2:00 AM');
+    console.log('⏰ Scheduled job configured: Cache will refresh daily at 2:00 AM');
+    console.log('💡 Tip: Use POST /api/cache/refresh to manually refresh cache anytime\n');
   } else {
     console.warn('\n⚠️  Server started but database is NOT connected!');
     console.warn('The server will run but database operations will fail.');
