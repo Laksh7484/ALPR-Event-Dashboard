@@ -34,19 +34,19 @@ app.use(session({
   }
 }));
 
-// PostgreSQL connection pool for AWS RDS
+// PostgreSQL connection pool for AWS RDS using connection string
+const connectionString = `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'alpr_data'}${process.env.DB_SSL === 'true' ? '?sslmode=require' : ''}`;
+
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'alpr_data',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
-  // AWS RDS requires SSL connections
+  connectionString,
+  // Optimized pool settings for slow network/small RDS instance
+  max: 2, // Very small pool - only 2 connections to avoid overwhelming db.t3.micro
+  min: 0,
+  idleTimeoutMillis: 30000, // Keep connections alive longer (30s)
+  connectionTimeoutMillis: 45000, // Longer timeout for slow network (45s)
+  allowExitOnIdle: false,
+  // SSL configuration
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  // Simplified pool settings for unstable AWS RDS
-  max: 3, // Keep pool small - RDS drops connections frequently
-  idleTimeoutMillis: 10000, // Release idle connections quickly (10s)
-  connectionTimeoutMillis: 30000, // 30s to establish connection
 };
 
 console.log('Database configuration:', {
