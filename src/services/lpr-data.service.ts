@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { tap, map } from 'rxjs/operators';
 import { CacheService } from './cache.service';
 
 const API_BASE_URL = 'https://solenoidally-polygenistic-billi.ngrok-free.dev/api';
@@ -89,6 +89,60 @@ export class LprDataService {
     return new HttpHeaders(headers);
   }
 
+  /**
+   * Constructs the plate image URL from detection data
+   * URL pattern: https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr-plate/img-[epoch_day]/[camera_id]/[image_id].jpeg
+   */
+  private constructPlateImageUrl(detection: Detection): string {
+    const baseUrl = 'https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr-plate/';
+    return this.constructImageUrl(baseUrl, detection);
+  }
+
+  /**
+   * Constructs the original image URL from detection data
+   * URL pattern: https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr/img-[epoch_day]/[camera_id]/[image_id].jpeg
+   */
+  private constructOriginalImageUrl(detection: Detection): string {
+    const baseUrl = 'https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr/';
+    return this.constructImageUrl(baseUrl, detection);
+  }
+
+  /**
+   * Helper method to construct image URL with the given base URL
+   * Calculates epoch day start (midnight GMT) from timestamp
+   */
+  private constructImageUrl(baseUrl: string, detection: Detection): string {
+    if (!detection.image?.id || !detection.timestamp || !detection.source?.id) {
+      return '';
+    }
+
+    // Calculate epoch day start: convert timestamp to start of the day in GMT
+    // timestamp is in milliseconds, 86400000 = ms per day
+    const epochDayStart = Math.floor(detection.timestamp / 86400000) * 86400000;
+    const cameraId = detection.source.id;
+    const imageId = detection.image.id;
+
+    // Construct the suffix: img-{epoch_day_start}/{camera_id}/{image_id}.jpeg
+    const suffix = `img-${epochDayStart}/${cameraId}/${imageId}.jpeg`;
+
+    return `${baseUrl}${suffix}`;
+  }
+
+  /**
+   * Enriches a detection object with constructed image URLs - inline for performance
+   */
+  private enrichDetectionWithUrls(detection: Detection): Detection {
+    const plate_url = this.constructPlateImageUrl(detection);
+    const original_url = this.constructOriginalImageUrl(detection);
+
+    // Return immediately with URLs already set
+    return {
+      ...detection,
+      plate_image_url: plate_url,
+      original_image_url: original_url
+    };
+  }
+
   getKpis(): Observable<Kpi[]> {
     const cacheKey = 'kpis';
     const cached = this.cacheService.get<Kpi[]>(cacheKey);
@@ -120,7 +174,16 @@ export class LprDataService {
     if (endTimestamp) {
       url += `&endTimestamp=${encodeURIComponent(endTimestamp)}`;
     }
-    return this.http.get<DetectionsResponse>(url, { headers: this.getHeaders() });
+    return this.http.get<DetectionsResponse>(url, { headers: this.getHeaders() }).pipe(
+      map(response => {
+        // Construct URLs synchronously before emitting to component
+        const enrichedDetections = response.detections.map(det => this.enrichDetectionWithUrls(det));
+        return {
+          detections: enrichedDetections,
+          total: response.total
+        };
+      })
+    );
   }
 
   getDetectionsCount(cameraName?: string, carMake?: string, startTimestamp?: string, endTimestamp?: string): Observable<{ total: number }> {
@@ -189,7 +252,9 @@ export class LprDataService {
     if (endTimestamp) {
       url += `&endTimestamp=${encodeURIComponent(endTimestamp)}`;
     }
-    return this.http.get<Detection[]>(url, { headers: this.getHeaders() });
+    return this.http.get<Detection[]>(url, { headers: this.getHeaders() }).pipe(
+      map(detections => detections.map(det => this.enrichDetectionWithUrls(det)))
+    );
   }
 
   exportFilteredDetections(plateTag?: string, cameraName?: string, carMake?: string, startTimestamp?: string, endTimestamp?: string): Observable<Detection[]> {
@@ -215,7 +280,9 @@ export class LprDataService {
     }
 
     url += params.join('&');
-    return this.http.get<Detection[]>(url, { headers: this.getHeaders() });
+    return this.http.get<Detection[]>(url, { headers: this.getHeaders() }).pipe(
+      map(detections => detections.map(det => this.enrichDetectionWithUrls(det)))
+    );
   }
 
   getDetectionsByCamera(cameraName?: string, carMake?: string): Observable<{ camera: string, detections: number }[]> {
