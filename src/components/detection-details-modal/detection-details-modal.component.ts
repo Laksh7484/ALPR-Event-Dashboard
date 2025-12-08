@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, input, output, effect, OnDestroy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, effect, OnDestroy, signal } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { Detection } from '../../services/lpr-data.service';
 
@@ -12,10 +12,15 @@ export class DetectionDetailsModalComponent implements OnDestroy {
   detection = input.required<Detection>();
   close = output<void>();
 
+  // Track image loading errors
+  imageLoadError = signal(false);
+
   constructor() {
     effect(() => {
       if (this.detection()) {
         document.body.style.overflow = 'hidden';
+        // Reset image error state when detection changes
+        this.imageLoadError.set(false);
       }
     });
   }
@@ -31,6 +36,10 @@ export class DetectionDetailsModalComponent implements OnDestroy {
 
   stopPropagation(event: Event): void {
     event.stopPropagation();
+  }
+
+  onImageError(): void {
+    this.imageLoadError.set(true);
   }
 
   // Formats timestamp in GMT/UTC as 'MMM d, yyyy, h:mm:ss a'
