@@ -97,9 +97,10 @@ export class DashboardComponent {
         return this.lprDataService.getDetections(page, limit, camera, carMake, startTimestamp, endTimestamp).pipe(
           finalize(() => this.loading.set(false))
         );
+      })
     ),
-      { initialValue: { detections: [], total: 0 } }
-    );
+    { initialValue: { detections: [], total: 0 } }
+  );
 
   private filtersForCount = computed(() => ({
     camera: this.selectedCamera(),
