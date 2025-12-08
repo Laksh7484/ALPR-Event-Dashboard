@@ -71,7 +71,7 @@ export class DashboardComponent {
       switchMap(({ page, limit, camera, carMake, hasPerformedSearch, searchTrigger }) => {
         if (this.isSearchMode() || !hasPerformedSearch) {
           // Don't fetch if in search mode or no search has been performed
-          return of([]);
+          return of({ detections: [], total: 0 });
         }
         const startDate = this.dateRangeStart();
         const endDate = this.dateRangeEnd();
@@ -97,10 +97,9 @@ export class DashboardComponent {
         return this.lprDataService.getDetections(page, limit, camera, carMake, startTimestamp, endTimestamp).pipe(
           finalize(() => this.loading.set(false))
         );
-      })
     ),
-    { initialValue: [] }
-  );
+      { initialValue: { detections: [], total: 0 } }
+    );
 
   private filtersForCount = computed(() => ({
     camera: this.selectedCamera(),
@@ -114,45 +113,15 @@ export class DashboardComponent {
       // In search mode, count the filtered search results
       return { total: this.filteredDetections().length };
     } else if (this.hasPerformedSearch()) {
-      // In general filter mode, use the API count (this will be reactive to searchTrigger)
-      return this.apiTotalItems();
+      // In general filter mode, use the total from the combined API response
+      return { total: this.detectionsResponse().total };
     } else {
       // No search performed yet
       return { total: 0 };
     }
   });
 
-  private apiTotalItems = toSignal(
-    toObservable(this.filtersForCount).pipe(
-      switchMap(({ camera, carMake, hasPerformedSearch, searchTrigger }) => {
-        if (!hasPerformedSearch || this.isSearchMode()) {
-          return of({ total: 0 });
-        }
-        const startDate = this.dateRangeStart();
-        const endDate = this.dateRangeEnd();
-
-        // Convert dates to Unix timestamps (milliseconds)
-        // Use UTC to ensure consistent date filtering regardless of timezone
-        const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
-        // For end date, use the start of the next day (which excludes the end date itself)
-        let endTimestamp = '';
-        if (endDate) {
-          const endDateObj = new Date(endDate + 'T00:00:00Z');
-          endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
-          endTimestamp = (endDateObj.getTime() - 1).toString(); // Subtract 1ms to stay within the selected end date
-        }
-
-        console.log('Getting count with filters:', {
-          camera, carMake,
-          startDate, endDate,
-          startTimestamp, endTimestamp,
-          searchTrigger
-        });
-        return this.lprDataService.getDetectionsCount(camera, carMake, startTimestamp, endTimestamp);
-      })
-    ),
-    { initialValue: { total: 0 } }
-  );
+  // Removed apiTotalItems and getDetectionsCount since total is now provided by getDetections
 
   // Removed analytics API calls since visualizations are no longer displayed
 
@@ -204,7 +173,7 @@ export class DashboardComponent {
     });
   }
 
-  paginatedDetections = computed(() => this.detectionsResponse());
+  paginatedDetections = computed(() => this.detectionsResponse().detections);
 
   filteredDetections = computed(() => {
     // If in search mode, use search results (filtered by camera and car make on frontend since search API doesn't support filters)

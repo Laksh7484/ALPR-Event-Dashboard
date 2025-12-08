@@ -233,13 +233,27 @@ async function initializeDatabase() {
       )
     `);
 
-    // Create indexes
+    // Create indexes for auth tables
     await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_email ON alpr_data.otp_tokens(email)`);
     await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_otp_tokens_expires_at ON alpr_data.otp_tokens(expires_at)`);
     await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON alpr_data.user_sessions(session_token)`);
     await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON alpr_data.user_sessions(expires_at)`);
 
     console.log('Database tables initialized successfully in alpr_data schema');
+
+    // Create performance indexes for ALPR queries
+    console.log('Creating performance indexes for ALPR queries...');
+    const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
+    const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
+    const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
+
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_alpr_camera_name ON ${fullTableName}(camera_name)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_alpr_timestamp ON ${fullTableName}(timestamp)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_alpr_plate_tag ON ${fullTableName}(plate_tag)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_alpr_camera_timestamp ON ${fullTableName}(camera_name, timestamp)`);
+    await queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_alpr_metadata_gin ON ${fullTableName} USING GIN (metadata jsonb_path_ops)`);
+
+    console.log('✓ Performance indexes created successfully');
   } catch (error) {
     console.error('Error initializing database tables:', error);
   }
@@ -1171,7 +1185,7 @@ app.get('/api/analytics/detections-by-camera', authenticateSession, async (req, 
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
 
-    query += ` GROUP BY camera_name ORDER BY detections DESC`;
+    query += ` GROUP BY camera_name ORDER BY detections DESC LIMIT 50`;
 
     const result = await queryWithRetry(query, queryParams);
 
@@ -1232,7 +1246,7 @@ app.get('/api/analytics/vehicle-types', authenticateSession, async (req, res) =>
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
 
-    query += ` GROUP BY vehicle_type ORDER BY count DESC`;
+    query += ` GROUP BY vehicle_type ORDER BY count DESC LIMIT 20`;
 
     const result = await queryWithRetry(query, queryParams);
 
@@ -1292,7 +1306,7 @@ app.get('/api/analytics/vehicle-colors', authenticateSession, async (req, res) =
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
 
-    query += ` GROUP BY vehicle_color ORDER BY count DESC`;
+    query += ` GROUP BY vehicle_color ORDER BY count DESC LIMIT 20`;
 
     const result = await queryWithRetry(query, queryParams);
 
@@ -1353,7 +1367,7 @@ app.get('/api/analytics/vehicle-orientations', authenticateSession, async (req, 
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
 
-    query += ` GROUP BY vehicle_orientation ORDER BY count DESC`;
+    query += ` GROUP BY vehicle_orientation ORDER BY count DESC LIMIT 10`;
 
     const result = await queryWithRetry(query, queryParams);
 
@@ -1383,20 +1397,6 @@ app.get('/api/detections', authenticateSession, async (req, res) => {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
-
-    let query = `
-      SELECT 
-        id,
-        timestamp,
-        plate_tag,
-        camera_id,
-        camera_name,
-        metadata,
-        source_file,
-        plate_image_url,
-        original_image_url
-      FROM ${fullTableName}
-    `;
 
     const queryParams = [];
     const whereConditions = [];
@@ -1433,20 +1433,49 @@ app.get('/api/detections', authenticateSession, async (req, res) => {
       }
     }
 
-    // Add WHERE clause if we have any conditions
-    if (whereConditions.length > 0) {
-      query += ` WHERE ${whereConditions.join(' AND ')}`;
-    }
+    // Build WHERE clause
+    const whereClause = whereConditions.length > 0 ? ` WHERE ${whereConditions.join(' AND ')}` : '';
 
-    query += ` ORDER BY timestamp DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
-    queryParams.push(limit, offset);
-
-    const result = await queryWithRetry(query, queryParams);
+    // Execute both queries in parallel for better performance
+    const [dataResult, countResult] = await Promise.all([
+      // Query for paginated data
+      queryWithRetry(
+        `SELECT 
+          id,
+          timestamp,
+          plate_tag,
+          camera_id,
+          camera_name,
+          metadata,
+          source_file,
+          plate_image_url,
+          original_image_url
+        FROM ${fullTableName}
+        ${whereClause}
+        ORDER BY timestamp DESC 
+        LIMIT $${queryParams.length + 1} 
+        OFFSET $${queryParams.length + 2}`,
+        [...queryParams, limit, offset]
+      ),
+      // Query for total count
+      queryWithRetry(
+        `SELECT COUNT(*) as total FROM ${fullTableName}${whereClause}`,
+        queryParams
+      )
+    ]);
 
     // Transform database rows to match Detection interface
-    const detections = result.rows.map(row => transformRowToDetection(row));
+    const detections = dataResult.rows.map(row => transformRowToDetection(row));
+    const total = parseInt(countResult.rows[0].total, 10);
 
-    res.json(detections);
+    // Return combined response with data and count
+    res.json({
+      detections: detections,
+      total: total,
+      page: page,
+      limit: limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     console.error('Error fetching detections:', error);
     res.status(500).json({ error: 'Failed to fetch detections', message: error.message });
@@ -1530,6 +1559,7 @@ app.get('/api/car-makes', authenticateSession, async (req, res) => {
 });
 
 // API endpoint to get total detection count
+// DEPRECATED: Use /api/detections which now includes total count in response
 app.get('/api/detections/count', authenticateSession, async (req, res) => {
   const cameraName = req.query.cameraName;
   const carMake = req.query.carMake;
@@ -1667,8 +1697,8 @@ app.get('/api/detections/export', authenticateSession, async (req, res) => {
     }
 
     // Order by timestamp and limit to prevent excessive data transfer
-    // Set a reasonable maximum limit (e.g., 100,000 records)
-    query += ` ORDER BY timestamp DESC LIMIT 100000`;
+    // Reduced limit to 10,000 for better performance
+    query += ` ORDER BY timestamp DESC LIMIT 10000`;
 
     console.log('Export query:', query);
     console.log('Export params:', queryParams);
