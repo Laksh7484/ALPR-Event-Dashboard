@@ -1051,9 +1051,7 @@ function transformRowToDetection(row) {
     timestamp: timestamp,
     type: metadata.type || 'alpr',
     vehicle: vehicle,
-    version: metadata.version || '1.0',
-    plate_image_url: row.plate_image_url || null,
-    original_image_url: row.original_image_url || null
+    version: metadata.version || '1.0'
   };
 }
 
@@ -1084,9 +1082,7 @@ app.get('/api/detections/search', authenticateSession, async (req, res) => {
         camera_id,
         camera_name,
         metadata,
-        source_file,
-        plate_image_url,
-        original_image_url
+        source_file
       FROM ${fullTableName}
       WHERE LOWER(plate_tag) LIKE LOWER($1)
     `;
@@ -1447,9 +1443,7 @@ app.get('/api/detections', authenticateSession, async (req, res) => {
           camera_id,
           camera_name,
           metadata,
-          source_file,
-          plate_image_url,
-          original_image_url
+          source_file
         FROM ${fullTableName}
         ${whereClause}
         ORDER BY timestamp DESC 
@@ -1635,23 +1629,6 @@ app.get('/api/detections/export', authenticateSession, async (req, res) => {
     const tableName = sanitizeIdentifier(process.env.DB_TABLE || 'alpr_data');
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
-
-    let query = `
-      SELECT 
-        id,
-        timestamp,
-        plate_tag,
-        camera_id,
-        camera_name,
-        metadata,
-        source_file,
-        plate_image_url,
-        original_image_url
-      FROM ${fullTableName}
-    `;
-
-    const queryParams = [];
-    const whereConditions = [];
 
     // Add plate tag filter if provided (for search mode)
     if (plateTag && plateTag.trim() !== '') {
