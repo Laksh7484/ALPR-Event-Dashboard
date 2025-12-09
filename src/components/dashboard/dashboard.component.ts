@@ -76,16 +76,11 @@ export class DashboardComponent {
         const startDate = this.dateRangeStart();
         const endDate = this.dateRangeEnd();
 
-        // Convert dates to Unix timestamps (milliseconds)
-        // Use UTC to ensure consistent date filtering regardless of timezone
-        const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
-        // For end date, use the start of the next day (which excludes the end date itself)
-        let endTimestamp = '';
-        if (endDate) {
-          const endDateObj = new Date(endDate + 'T00:00:00Z');
-          endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
-          endTimestamp = (endDateObj.getTime() - 1).toString(); // Subtract 1ms to stay within the selected end date
-        }
+        // Convert inputs (which are in local time representation of EST) to UTC timestamps
+        // The input string is like "2023-10-27T10:00"
+        // We want to treat this as 10:00 EST/EDT and get the corresponding UTC timestamp
+        const startTimestamp = startDate ? this.getESTTimestamp(startDate) : '';
+        const endTimestamp = endDate ? this.getESTTimestamp(endDate) : '';
 
         console.log('Getting detections with filters:', {
           page, limit, camera, carMake,
@@ -145,26 +140,136 @@ export class DashboardComponent {
     return this.formatValue(value).toLowerCase();
   }
 
-  // Formats timestamp in GMT/UTC as 'MM/dd/yyyy, h:mm:ss a'
-  formatTimestampToGMT(timestamp: string | number | Date): string {
+  // Formats timestamp in EST as 'MM/dd/yyyy, h:mm:ss a'
+  formatTimestamp(timestamp: string | number | Date): string {
     if (!timestamp) return 'N/A';
     try {
-      // Parse the input timestamp
       const date = new Date(timestamp);
-      // Format as MM/dd/yyyy, h:mm:ss a in UTC
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      const month = pad(date.getUTCMonth() + 1);
-      const day = pad(date.getUTCDate());
-      const year = date.getUTCFullYear();
-      let hour = date.getUTCHours();
-      const minute = pad(date.getUTCMinutes());
-      const second = pad(date.getUTCSeconds());
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      hour = hour % 12;
-      if (hour === 0) hour = 12;
-      return `${month}/${day}/${year}, ${hour}:${minute}:${second} ${ampm}`;
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      }).format(date);
     } catch {
       return 'N/A';
+    }
+  }
+
+  // Helper to convert an ISO string (e.g. "2023-10-27T10:00") to a UTC timestamp
+  // treating the input time as if it were in America/New_York timezone.
+  private getESTTimestamp(isoString: string): string {
+    if (!isoString) return '';
+    try {
+      // Create a date object from the string.
+      // Note: new Date("2023-10-27T10:00") creates a date in the browser's local timezone.
+      // We want to interpret "2023-10-27T10:00" as EST/EDT.
+
+      // One way is to append the offset, but offset changes with DST.
+      // A robust way is to use Intl.DateTimeFormat to find the offset or use a library like date-fns-tz.
+      // Without external libraries, we can approximate or use a trick.
+
+      // Trick: 
+      // 1. Parse the components
+      const date = new Date(isoString); // Local time
+      // 2. We want to find a UTC timestamp X such that X formatted in America/New_York equals isoString.
+
+      // Let's assume the user's browser is NOT in EST, or maybe it is.
+      // Actually, the simplest way without libraries is to construct a string with the timezone.
+      // But JS Date parsing with timezone names is not standard.
+
+      // Alternative: Use the fact that we want to send a timestamp that represents that time in EST.
+      // If the user selects 10:00 AM, they mean 10:00 AM EST.
+      // The API expects a UTC timestamp (milliseconds).
+
+      // We can create a date object, format it to parts in America/New_York, compare with desired parts, and adjust.
+      // Or simpler: construct a string "MM/DD/YYYY, HH:mm:ss" and parse it? No.
+
+      // Let's try to construct a Date object that represents that time in UTC, then add the EST offset (reversed).
+      // Actually, since we don't have a timezone library, let's rely on the fact that the backend might handle it?
+      // No, backend expects UTC epoch.
+
+      // Let's use a heuristic: EST is UTC-5, EDT is UTC-4.
+      // We can try to construct the date in UTC and add 5 or 4 hours?
+      // Better:
+      // Create a date object from the input string (treated as UTC).
+      // Then add 4 or 5 hours depending on the date?
+
+      // Let's try this:
+      // 1. Treat the input string as UTC.
+      const utcDate = new Date(isoString + 'Z');
+      // 2. Format this UTC date in America/New_York.
+      const estString = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+      }).format(utcDate);
+
+      // 3. Compare the formatted EST string with the input ISO string.
+      // If they match, great. If not, we have an offset difference.
+      // This is getting complicated.
+
+      // Simpler approach for now:
+      // Just treat the input as local time if the user is in EST?
+      // The user asked to "convert the timestamp into est".
+      // If the user selects 10:00 in the picker, they mean 10:00 EST.
+      // So we need to find the UTC timestamp for 10:00 EST.
+
+      // Let's use the `toLocaleString` with timeZone option to find the offset.
+      // Or simpler:
+      // 1. Parse the input as if it were UTC: new Date(isoString + 'Z')
+      // 2. Get the offset of America/New_York at that time.
+      // Since we can't easily get the offset, let's just assume the user is in the same timezone or just send it as is?
+      // No, user specifically asked for EST.
+
+      // Let's use a workaround:
+      // Create a date, set the time, and then adjust.
+      // Actually, `new Date(isoString)` uses local browser time.
+      // If we append "-05:00" or "-04:00"? We don't know which one.
+
+      // Let's try to find the offset dynamically.
+      const targetTime = new Date(isoString); // Local
+      const timeInEst = new Date(targetTime.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const diff = targetTime.getTime() - timeInEst.getTime();
+      // This gives the difference between Local and EST.
+      // We want to convert "Input Time (EST)" -> UTC.
+      // Input Time (EST) = Input Time (Local) + (Local - EST)? No.
+
+      // Let's go with a simpler approximation for now, or just assume standard offsets if exactness isn't critical to the second.
+      // But for filtering it is.
+
+      // Let's try this:
+      // We want 10:00 EST.
+      // new Date("2023-10-27T10:00-04:00") works if we know it's -04:00.
+      // We can check if the date is in DST for New York.
+      // A simple helper function to check DST for a given date in NY.
+      // But that's complex to implement from scratch.
+
+      // Let's assume the input is UTC for the sake of the timestamp value, then add 5 hours (standard) or 4 (DST).
+      // How to detect DST?
+      // In 2025 (current year in context), DST starts March 9 and ends Nov 2.
+      const inputDate = new Date(isoString);
+      const year = inputDate.getFullYear();
+      // Simple DST check for US (Second Sunday in March to First Sunday in Nov)
+      // This is an approximation but likely sufficient.
+      // Actually, `Intl` can tell us the timezone name.
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        timeZoneName: 'short'
+      }).formatToParts(inputDate);
+      const isDaylight = parts.find(p => p.type === 'timeZoneName')?.value === 'EDT';
+
+      const offset = isDaylight ? '-04:00' : '-05:00';
+      const estDate = new Date(`${isoString}:00${offset}`);
+      return estDate.getTime().toString();
+    } catch (e) {
+      console.error('Error converting to EST timestamp', e);
+      return '';
     }
   }
 
@@ -247,22 +352,7 @@ export class DashboardComponent {
     return end > total ? total : end;
   });
 
-  // Format dates to mm-dd-yyyy for display
-  formattedDateRangeStart = computed(() => {
-    const date = this.dateRangeStart();
-    if (!date) return '';
-    // date is in yyyy-mm-dd format from input, convert to mm-dd-yyyy
-    const [year, month, day] = date.split('-');
-    return `${month}-${day}-${year}`;
-  });
-
-  formattedDateRangeEnd = computed(() => {
-    const date = this.dateRangeEnd();
-    if (!date) return '';
-    // date is in yyyy-mm-dd format from input, convert to mm-dd-yyyy
-    const [year, month, day] = date.split('-');
-    return `${month}-${day}-${year}`;
-  });
+  // Removed formattedDateRangeStart and formattedDateRangeEnd
 
   // Pagination methods
   goToPage(page: number) {
@@ -355,7 +445,8 @@ export class DashboardComponent {
     const maxDate = new Date(startDate);
     maxDate.setDate(maxDate.getDate() + 90);
 
-    return maxDate.toISOString().split('T')[0];
+    // Return in format YYYY-MM-DDTHH:mm for datetime-local
+    return maxDate.toISOString().slice(0, 16);
   }
 
   showDateErrorPopup(message: string) {
@@ -398,15 +489,8 @@ export class DashboardComponent {
       const endDate = this.dateRangeEnd();
 
       // Convert dates to Unix timestamps (milliseconds)
-      // Use UTC to ensure consistent date filtering regardless of timezone
-      const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
-      // For end date, use the start of the next day (which excludes the end date itself)
-      let endTimestamp = '';
-      if (endDate) {
-        const endDateObj = new Date(endDate + 'T00:00:00Z');
-        endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
-        endTimestamp = (endDateObj.getTime() - 1).toString(); // Subtract 1ms to stay within the selected end date
-      }
+      const startTimestamp = startDate ? this.getESTTimestamp(startDate) : '';
+      const endTimestamp = endDate ? this.getESTTimestamp(endDate) : '';
 
       this.lprDataService.searchPlate(plateTag, camera, carMake, startTimestamp, endTimestamp).subscribe({
         next: (detections) => {
@@ -484,13 +568,8 @@ export class DashboardComponent {
     const endDate = this.dateRangeEnd();
 
     // Convert dates to Unix timestamps (milliseconds)
-    const startTimestamp = startDate ? new Date(startDate + 'T00:00:00Z').getTime().toString() : '';
-    let endTimestamp = '';
-    if (endDate) {
-      const endDateObj = new Date(endDate + 'T00:00:00Z');
-      endDateObj.setUTCDate(endDateObj.getUTCDate() + 1);
-      endTimestamp = (endDateObj.getTime() - 1).toString();
-    }
+    const startTimestamp = startDate ? this.getESTTimestamp(startDate) : '';
+    const endTimestamp = endDate ? this.getESTTimestamp(endDate) : '';
 
     // Show loader while exporting
     this.loading.set(true);

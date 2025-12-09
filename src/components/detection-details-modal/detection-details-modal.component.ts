@@ -1,12 +1,12 @@
 import { Component, ChangeDetectionStrategy, input, output, effect, OnDestroy, signal } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { Detection } from '../../services/lpr-data.service';
 
 @Component({
   selector: 'app-detection-details-modal',
   templateUrl: './detection-details-modal.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, DatePipe],
+  imports: [CommonModule],
 })
 export class DetectionDetailsModalComponent implements OnDestroy {
   detection = input.required<Detection>();
@@ -42,24 +42,21 @@ export class DetectionDetailsModalComponent implements OnDestroy {
     this.imageLoadError.set(true);
   }
 
-  // Formats timestamp in GMT/UTC as 'MMM d, yyyy, h:mm:ss a'
-  formatTimestampToGMT(timestamp: string | number | Date): string {
+  // Formats timestamp in EST as 'MMM d, yyyy, h:mm:ss a'
+  formatTimestamp(timestamp: string | number | Date): string {
     if (!timestamp) return 'N/A';
     try {
-      // Parse the input timestamp
       const date = new Date(timestamp);
-      // Format as 'MMM d, yyyy, h:mm:ss a' in UTC
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const month = months[date.getUTCMonth()];
-      const day = date.getUTCDate();
-      const year = date.getUTCFullYear();
-      let hour = date.getUTCHours();
-      const minute = date.getUTCMinutes().toString().padStart(2, '0');
-      const second = date.getUTCSeconds().toString().padStart(2, '0');
-      const ampm = hour >= 12 ? 'AM' : 'PM';
-      hour = hour % 12;
-      if (hour === 0) hour = 12;
-      return `${month} ${day}, ${year}, ${hour}:${minute}:${second} ${ampm}`;
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      }).format(date);
     } catch {
       return 'N/A';
     }

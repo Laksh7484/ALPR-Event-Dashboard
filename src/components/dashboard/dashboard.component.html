@@ -58,30 +58,26 @@
           class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5 placeholder-gray-400" />
       </div>
 
-      <!-- From Date -->
+      <!-- From Date & Time -->
       <div class="flex flex-col space-y-1">
-        <label for="from-date" class="text-sm font-medium text-gray-400">From Date</label>
+        <label for="from-date" class="text-sm font-medium text-gray-400">From Date & Time</label>
         <div class="relative">
-          <input id="from-date" type="date" [value]="dateRangeStart()" (change)="onDateChange('start', $event)"
-            class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5 text-transparent" />
-          <span class="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-200 text-sm pointer-events-none">
-            {{ formattedDateRangeStart() || 'mm-dd-yyyy' }}
-          </span>
+          <input id="from-date" type="datetime-local" lang="en-US" [value]="dateRangeStart()"
+            (change)="onDateChange('start', $event)"
+            class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5" />
         </div>
       </div>
 
-      <!-- To Date -->
+      <!-- To Date & Time -->
       <div class="flex flex-col space-y-1">
-        <label for="to-date" class="text-sm font-medium text-gray-400">To Date <span class="text-gray-400">(max 90
+        <label for="to-date" class="text-sm font-medium text-gray-400">To Date & Time <span class="text-gray-400">(max
+            90
             days)</span></label>
         <div class="relative">
-          <input id="to-date" type="date" [value]="dateRangeEnd()" (change)="onDateChange('end', $event)"
-            (click)="onEndDateClick($event)" [max]="getMaxEndDate()" [min]="dateRangeStart()"
-            [disabled]="!dateRangeStart()"
-            class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5 disabled:opacity-50 disabled:cursor-not-allowed text-transparent" />
-          <span class="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-200 text-sm pointer-events-none">
-            {{ formattedDateRangeEnd() || 'mm-dd-yyyy' }}
-          </span>
+          <input id="to-date" type="datetime-local" lang="en-US" [value]="dateRangeEnd()"
+            (change)="onDateChange('end', $event)" (click)="onEndDateClick($event)" [max]="getMaxEndDate()"
+            [min]="dateRangeStart()" [disabled]="!dateRangeStart()"
+            class="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-2.5 disabled:opacity-50 disabled:cursor-not-allowed" />
         </div>
       </div>
 
@@ -193,9 +189,6 @@
   }
 
   <!-- Main Content - Full Width Table -->
-  <!-- <div class="grid grid-cols-1 xl:grid-cols-5 gap-8">
-    <!-- Left Section -->
-  <!-- <div class="xl:col-span-3"> -->
   <div>
     <!-- Detections Grid -->
     <section class="bg-gray-800 border border-gray-700 rounded-xl flex flex-col"
@@ -272,7 +265,7 @@
               <td class="px-6 py-4">
                 {{
                 det.timestamp
-                ? formatTimestampToGMT(det.timestamp)
+                ? formatTimestamp(det.timestamp)
                 : 'N/A'
                 }}
               </td>
