@@ -91,11 +91,11 @@ export class LprDataService {
 
   /**
    * Constructs the plate image URL from detection data
-   * URL pattern: https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr-plate/img-[epoch_day]/[camera_id]/[image_id].jpeg
+   * URL pattern: https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr-plate/img-[epoch_day]/[camera_id]/[detection_id].jpeg
    */
   private constructPlateImageUrl(detection: Detection): string {
     const baseUrl = 'https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr-plate/';
-    return this.constructImageUrl(baseUrl, detection);
+    return this.constructImageUrl(baseUrl, detection, detection.id);
   }
 
   /**
@@ -104,15 +104,15 @@ export class LprDataService {
    */
   private constructOriginalImageUrl(detection: Detection): string {
     const baseUrl = 'https://s3.us-east-1.wasabisys.com/adept-data-archive-742i3ur2uryo2j3n847234tu2/alpr/';
-    return this.constructImageUrl(baseUrl, detection);
+    return this.constructImageUrl(baseUrl, detection, detection.image?.id);
   }
 
   /**
    * Helper method to construct image URL with the given base URL
    * Calculates epoch day start (midnight GMT) from timestamp
    */
-  private constructImageUrl(baseUrl: string, detection: Detection): string {
-    if (!detection.image?.id || !detection.timestamp || !detection.source?.id) {
+  private constructImageUrl(baseUrl: string, detection: Detection, imageId: string): string {
+    if (!imageId || !detection.timestamp || !detection.source?.id) {
       return '';
     }
 
@@ -120,7 +120,6 @@ export class LprDataService {
     // timestamp is in milliseconds, 86400000 = ms per day
     const epochDayStart = Math.floor(detection.timestamp / 86400000) * 86400000;
     const cameraId = detection.source.id;
-    const imageId = detection.image.id;
 
     // Construct the suffix: img-{epoch_day_start}/{camera_id}/{image_id}.jpeg
     const suffix = `img-${epochDayStart}/${cameraId}/${imageId}.jpeg`;
