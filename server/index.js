@@ -1630,6 +1630,21 @@ app.get('/api/detections/export', authenticateSession, async (req, res) => {
     const schemaName = process.env.DB_SCHEMA ? sanitizeIdentifier(process.env.DB_SCHEMA) : null;
     const fullTableName = schemaName ? `${schemaName}.${tableName}` : tableName;
 
+    let query = `
+      SELECT 
+        id,
+        timestamp,
+        plate_tag,
+        camera_id,
+        camera_name,
+        metadata,
+        source_file
+      FROM ${fullTableName}
+    `;
+
+    const queryParams = [];
+    const whereConditions = [];
+
     // Add plate tag filter if provided (for search mode)
     if (plateTag && plateTag.trim() !== '') {
       whereConditions.push(`LOWER(plate_tag) LIKE LOWER($${queryParams.length + 1})`);
