@@ -285,8 +285,8 @@
               </td>
               <td class="px-6 py-4">
                 @if (det.plate_image_url) {
-                <img [src]="det.plate_image_url" alt="Plate" class="h-12 w-auto rounded border border-gray-600"
-                  (error)="onImageError($event)">
+                <img [src]="det.plate_image_url" alt="Plate"
+                  class="h-[51px] w-[107px] object-fill rounded border border-gray-600" (error)="onImageError($event)">
                 } @else {
                 <span class="text-xs text-gray-500">No image</span>
                 }
