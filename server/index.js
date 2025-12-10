@@ -1688,9 +1688,8 @@ app.get('/api/detections/export', authenticateSession, async (req, res) => {
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
 
-    // Order by timestamp and limit to prevent excessive data transfer
-    // Reduced limit to 10,000 for better performance
-    query += ` ORDER BY timestamp DESC LIMIT 10000`;
+    // Order by timestamp DESC
+    query += ` ORDER BY timestamp DESC`;
 
     console.log('Export query:', query);
     console.log('Export params:', queryParams);
