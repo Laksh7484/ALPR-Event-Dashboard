@@ -42,15 +42,13 @@ const dbConfig = {
   database: process.env.DB_NAME || 'alpr_data',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || '',
-  // AWS RDS SSL configuration - accept self-signed certificates
   ssl: process.env.DB_SSL === 'true' ? {
     rejectUnauthorized: false
   } : false,
-  // Optimized pool settings for db.t3.micro instance
-  max: 5, // Increased to handle concurrent requests
+  max: 5,
   min: 0,
-  idleTimeoutMillis: 30000, // Keep connections alive 30s
-  connectionTimeoutMillis: 60000, // Increased to 60s for very slow connections
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 60000,
 };
 
 console.log('Database configuration:', {
@@ -64,7 +62,6 @@ console.log('Database configuration:', {
 
 const pool = new Pool(dbConfig);
 
-// Pool monitoring for debugging
 pool.on('acquire', (client) => {
   const stats = {
     total: pool.totalCount,
@@ -126,23 +123,9 @@ async function testDatabaseConnection() {
     }
   }
 
-  console.error('\n❌ Database connection failed after 3 attempts');
-  console.error('Last error:', lastError.message);
-  console.error('\nPossible causes:');
-  console.error('1. AWS RDS Security Group does not allow your IP address');
-  console.error('2. Database credentials are incorrect');
-  console.error('3. Database does not exist');
-  console.error('4. Network/firewall blocking the connection');
-  console.error('5. RDS instance is not publicly accessible');
-  console.error('\nPlease check:');
-  console.error('- AWS RDS Console → Your DB → Security Groups → Inbound Rules');
-  console.error('- Ensure your current IP is whitelisted on port 5432');
-  console.error('- Verify DB_PASSWORD is correct in .env file');
-
   return false;
 }
 
-// Retry wrapper for database queries to handle unstable AWS RDS connections
 async function queryWithRetry(queryText, params = [], maxRetries = 2) {
   let lastError;
 
@@ -162,12 +145,10 @@ async function queryWithRetry(queryText, params = [], maxRetries = 2) {
 
       if (isRetryable && attempt < maxRetries) {
         console.warn(`Query failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying...`);
-        // Wait a bit before retrying
         await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
         continue;
       }
 
-      // Non-retryable error or max retries reached
       throw error;
     }
   }
@@ -176,18 +157,16 @@ async function queryWithRetry(queryText, params = [], maxRetries = 2) {
 }
 
 
-// Email transporter configuration
 const emailTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.mailgun.org',
   port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false, // true for 465, false for other ports
+  secure: false,
   auth: {
     user: process.env.SMTP_USER || 'postmaster@your-domain.mailgun.org',
     pass: process.env.SMTP_PASS || 'your-mailgun-smtp-password'
   }
 });
 
-// Verify email configuration on startup
 emailTransporter.verify((error, success) => {
   if (error) {
     console.error('Email transporter configuration error:', error);
@@ -196,10 +175,8 @@ emailTransporter.verify((error, success) => {
   }
 });
 
-// Initialize database tables
 async function initializeDatabase() {
   try {
-    // Create users table in alpr_data schema
     await queryWithRetry(`
       CREATE TABLE IF NOT EXISTS alpr_data.users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -210,7 +187,6 @@ async function initializeDatabase() {
       )
     `);
 
-    // Create OTP tokens table in alpr_data schema
     await queryWithRetry(`
       CREATE TABLE IF NOT EXISTS alpr_data.otp_tokens (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -222,7 +198,6 @@ async function initializeDatabase() {
       )
     `);
 
-    // Create user sessions table in alpr_data schema
     await queryWithRetry(`
       CREATE TABLE IF NOT EXISTS alpr_data.user_sessions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -281,9 +256,11 @@ async function initializeCacheTable() {
   }
 }
 
-// Cache management functions
+// Variables to track refresh status to prevent thundering herd
+let isRefreshing = false;
+let lastRefreshTime = 0;
+const REFRESH_COOLDOWN = 60000; // 1 minute cooldown between refreshes
 
-// Get cached data by key
 async function getCachedData(cacheKey) {
   try {
     const result = await queryWithRetry(
@@ -292,11 +269,46 @@ async function getCachedData(cacheKey) {
     );
 
     if (result.rows.length > 0) {
+      const data = result.rows[0];
+      const lastUpdated = new Date(data.last_updated);
+      const now = new Date();
+
+      // Calculate age in hours
+      const ageInHours = (now - lastUpdated) / (1000 * 60 * 60);
+
+      // Lazy Refresh Strategy (Stale-While-Revalidate):
+      // If data exists but is stale (> 24 hours), return it BUT trigger a background refresh.
+      // This handles cases where the 2:00 AM cron job was missed (e.g., server was off).
+      if (ageInHours > 24) {
+        const timeSinceLastRefreshAttempt = Date.now() - lastRefreshTime;
+
+        if (!isRefreshing && timeSinceLastRefreshAttempt > REFRESH_COOLDOWN) {
+          console.log(`⚠️ Cache for '${cacheKey}' is stale (${ageInHours.toFixed(1)}h old). Triggering background refresh...`);
+
+          // Trigger background refresh (fire and forget)
+          isRefreshing = true;
+          fetchAndCacheData()
+            .then(() => {
+              console.log('✨ Background lazy refresh completed successfully');
+              isRefreshing = false;
+              lastRefreshTime = Date.now();
+            })
+            .catch(err => {
+              console.error('❌ Background lazy refresh failed:', err);
+              isRefreshing = false;
+              lastRefreshTime = Date.now(); // Set time to prevent immediate retry loop
+            });
+        }
+      }
+
       return {
-        data: result.rows[0].cache_data,
-        lastUpdated: result.rows[0].last_updated
+        data: data.cache_data,
+        lastUpdated: data.last_updated
       };
     }
+
+    // If no data exists at all, we might want to trigger a fetch or just return null
+    // Here we assume initial population handles the empty case
     return null;
   } catch (error) {
     console.error(`Error getting cached data for ${cacheKey}:`, error);
