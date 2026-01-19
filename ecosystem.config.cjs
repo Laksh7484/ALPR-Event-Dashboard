@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "alpr-backend",
-      script: "node",             // CHANGED: Run node directly to avoid npm issues on Windows
+      script: "node",
       args: "server/index.js",
       cwd: "./",
       env: {
@@ -12,8 +12,8 @@ module.exports = {
     },
     {
       name: "alpr-ui-dev",
-      script: "npm.cmd",          // CHANGED: Use npm.cmd for Windows compatibility
-      args: "run dev",
+      script: "node",             // CHANGED: Run ng.js directly via node
+      args: "node_modules/@angular/cli/bin/ng.js serve",
       cwd: "./"
     },
     {
