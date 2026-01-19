@@ -7,23 +7,26 @@ module.exports = {
       cwd: "./",
       env: {
         NODE_ENV: "production",
-        // PORT: 5001 // Default port from server/index.js
+        PORT: 3001 // Confirmed from screenshot
       }
     },
     {
-      name: "alpr-ui",
-      // USER: Update this if you use a specific proxy file or different command
+      name: "alpr-ui-dev",
       script: "npm",
-      args: "run start",
-      // If you use a specific node proxy file, uncomment and use this instead:
-      // script: "node",
-      // args: "path/to/your/proxy-file.js", 
+      args: "run dev", // Runs 'ng serve' on port 3000
+      cwd: "./"
+    },
+    {
+      name: "https-proxy",
+      script: "node",
+      args: "proxy443.js", // Confirmed filename from screenshot
+      cwd: "./"
     },
     {
       name: "ngrok-tunnel",
-      // USER: Update the port if your server runs on a different one
       script: "ngrok",
-      args: "http 5001 --log=stdout",
+      args: "http 3001 --log=stdout", // Tunnels backend port 3001
+      cwd: "./"
     }
   ]
 };
