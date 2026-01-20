@@ -5,7 +5,7 @@ Use this guide to check the health and performance of your services on the VM.
 ## 1. Quick Health Check (Analytics)
 Run this command to see a summary of all services, their memory usage, and uptime:
 ```bash
-node health-report.js
+node health-report.cjs
 ```
 
 ## 2. Live Dashboard (Recommended)
@@ -24,7 +24,7 @@ pm2 monit
 | `pm2 start ecosystem.config.cjs` | Starts everything from the config |
 
 ## 4. Log Analytics
-If a service is showing an error in `health-report.js` or `pm2 monit`:
+If a service is showing an error in `health-report.cjs` or `pm2 monit`:
 ```bash
 # See the last 50 lines of logs for backend
 pm2 logs alpr-backend --lines 50
