@@ -41,7 +41,7 @@ export class LoginComponent {
     // Check system health on load
     this.healthService.checkHealth().subscribe(status => {
       if (status.status !== 'ok') {
-        this.error.set('⚠️ System is currently experiencing issues. Login may be unavailable.');
+        this.error.set('System is currently experiencing issues. Login may be unavailable.');
       }
     });
   }

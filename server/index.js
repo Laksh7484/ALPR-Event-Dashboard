@@ -283,7 +283,7 @@ async function getCachedData(cacheKey) {
         const timeSinceLastRefreshAttempt = Date.now() - lastRefreshTime;
 
         if (!isRefreshing && timeSinceLastRefreshAttempt > REFRESH_COOLDOWN) {
-          console.log(`⚠️ Cache for '${cacheKey}' is stale (${ageInHours.toFixed(1)}h old). Triggering background refresh...`);
+          console.log(`Cache for '${cacheKey}' is stale (${ageInHours.toFixed(1)}h old). Triggering background refresh...`);
 
           // Trigger background refresh (fire and forget)
           isRefreshing = true;
@@ -1834,7 +1834,7 @@ app.post('/api/cache/refresh', authenticateSession, async (req, res) => {
 // Health check state
 let healthFailCount = 0;
 let lastAlertSent = 0;
-const MAX_FAIL_COUNT = 3;
+const MAX_FAIL_COUNT = 2; // Alert after 2 consecutive failures
 const ALERT_COOLDOWN = 1000 * 60 * 60 * 4; // 4 hours cooldown between alerts
 
 async function sendHealthAlert(errorMsg) {
@@ -1847,7 +1847,7 @@ async function sendHealthAlert(errorMsg) {
   const mailOptions = {
     from: process.env.SMTP_FROM || 'support@mail.platesmart.net',
     to: 'laksh.solanki@skilljourney.in',
-    subject: '⚠️ CRITICAL: ALPR Dashboard Health Failure',
+    subject: 'CRITICAL: ALPR Dashboard Health Failure',
     html: `
       <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ffcccc; background-color: #fff5f5;">
         <h2 style="color: #d32f2f;">System Health Alert</h2>
@@ -1878,13 +1878,13 @@ setInterval(async () => {
     }
   } catch (error) {
     healthFailCount++;
-    console.error(`⚠️ Health check failed (${healthFailCount}/${MAX_FAIL_COUNT}):`, error.message);
+    console.error(`Health check failed (${healthFailCount}/${MAX_FAIL_COUNT}):`, error.message);
 
     if (healthFailCount >= MAX_FAIL_COUNT) {
       await sendHealthAlert(error.message);
     }
   }
-}, 1000 * 60 * 5); // 5 minutes
+}, 1000 * 60 * 2); // Check every 2 minutes (Alert within 4 mins)
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -1920,7 +1920,7 @@ app.listen(PORT, '0.0.0.0', async () => {
     // Run initial cache population in background (non-blocking)
     console.log('\n📦 Populating cache in background...');
     fetchAndCacheData().catch(err => {
-      console.error('⚠️  Initial cache population failed, will retry at 2:00 AM:', err.message);
+      console.error('Initial cache population failed, will retry at 2:00 AM:', err.message);
     });
 
     // Schedule daily cache refresh at 2:00 AM
@@ -1934,7 +1934,7 @@ app.listen(PORT, '0.0.0.0', async () => {
     console.log('⏰ Scheduled job configured: Cache will refresh daily at 2:00 AM');
     console.log('💡 Tip: Use POST /api/cache/refresh to manually refresh cache anytime\n');
   } else {
-    console.warn('\n⚠️  Server started but database is NOT connected!');
+    console.warn('\n Server started but database is NOT connected!');
     console.warn('The server will run but database operations will fail.');
   }
 });
