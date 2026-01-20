@@ -1831,9 +1831,83 @@ app.post('/api/cache/refresh', authenticateSession, async (req, res) => {
   }
 });
 
+// Health check state
+let healthFailCount = 0;
+let lastAlertSent = 0;
+const MAX_FAIL_COUNT = 3;
+const ALERT_COOLDOWN = 1000 * 60 * 60 * 4; // 4 hours cooldown between alerts
+
+async function sendHealthAlert(errorMsg) {
+  const now = Date.now();
+  if (now - lastAlertSent < ALERT_COOLDOWN) {
+    console.log('Health alert throttled (cooldown active)');
+    return;
+  }
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || 'support@mail.platesmart.net',
+    to: 'laksh.solanki@skilljourney.in',
+    subject: '⚠️ CRITICAL: ALPR Dashboard Health Failure',
+    html: `
+      <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ffcccc; background-color: #fff5f5;">
+        <h2 style="color: #d32f2f;">System Health Alert</h2>
+        <p>The ALPR Dashboard system has detected a critical failure.</p>
+        <p><strong>Error Details:</strong> ${errorMsg}</p>
+        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        <hr/>
+        <p style="font-size: 12px; color: #666;">This is an automated alert from your VM monitoring system.</p>
+      </div>
+    `
+  };
+
+  try {
+    await emailTransporter.sendMail(mailOptions);
+    lastAlertSent = now;
+    console.log('✅ Health alert email sent to laksh.solanki@skilljourney.in');
+  } catch (error) {
+    console.error('❌ Failed to send health alert email:', error);
+  }
+}
+
+// Background Health Monitor (self-check every 5 minutes)
+setInterval(async () => {
+  try {
+    const dbCheck = await pool.query('SELECT 1');
+    if (dbCheck) {
+      healthFailCount = 0; // Reset on success
+    }
+  } catch (error) {
+    healthFailCount++;
+    console.error(`⚠️ Health check failed (${healthFailCount}/${MAX_FAIL_COUNT}):`, error.message);
+
+    if (healthFailCount >= MAX_FAIL_COUNT) {
+      await sendHealthAlert(error.message);
+    }
+  }
+}, 1000 * 60 * 5); // 5 minutes
+
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+app.get('/api/health', async (req, res) => {
+  try {
+    const start = Date.now();
+    await pool.query('SELECT 1');
+    const dbLatency = Date.now() - start;
+
+    res.json({
+      status: 'ok',
+      database: 'connected',
+      latency: `${dbLatency}ms`,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(500).json({
+      status: 'error',
+      database: 'disconnected',
+      error: error.message
+    });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', async () => {

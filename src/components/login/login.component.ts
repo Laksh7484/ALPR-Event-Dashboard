@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
+import { HealthService } from '../../services/health.service';
 
 type LoginStep = 'email' | 'otp' | 'signup';
 type Mode = 'login' | 'signup';
@@ -34,8 +35,16 @@ export class LoginComponent {
 
   constructor(
     private authService: AuthService,
+    private healthService: HealthService,
     private router: Router
-  ) { }
+  ) {
+    // Check system health on load
+    this.healthService.checkHealth().subscribe(status => {
+      if (status.status !== 'ok') {
+        this.error.set('⚠️ System is currently experiencing issues. Login may be unavailable.');
+      }
+    });
+  }
 
   isValidEmail(email: string): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

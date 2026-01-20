@@ -5,6 +5,7 @@ import { Router } from '@angular/router';
 import { LprDataService, Detection, DetectionsResponse } from '../../services/lpr-data.service';
 import { AuthService } from '../../services/auth.service';
 import { switchMap, finalize, of } from 'rxjs';
+import { HealthService } from '../../services/health.service';
 import { DetectionDetailsModalComponent } from '../detection-details-modal/detection-details-modal.component';
 // Removed unused visualization component imports
 import { LoaderComponent } from '../loader/loader.component';
@@ -18,7 +19,11 @@ import { LoaderComponent } from '../loader/loader.component';
 export class DashboardComponent {
   private lprDataService = inject(LprDataService);
   private authService = inject(AuthService);
+  private healthService = inject(HealthService);
   private router = inject(Router);
+
+  public systemHealth = this.healthService.systemHealth;
+  public isOnline = this.healthService.isOnline;
 
   currentUser = this.authService.getCurrentUser();
 
